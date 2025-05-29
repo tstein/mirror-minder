@@ -1,0 +1,216 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import os
+import os.path
+import random
+import time
+from dataclasses import dataclass
+from datetime import datetime, timedelta, UTC
+from typing import Optional
+
+import requests
+from sh import git
+
+TERMUX_TOOLS_REPO = "termux-tools"
+CHECK_INTERVAL = timedelta(minutes=30)
+CHECK_JITTER = CHECK_INTERVAL * .05
+# TODO: Lower once we're comparing to the origin mirror's timestamps and not to now().
+STALENESS_LIMIT = timedelta(hours=7 * 24)
+CONSECUTIVE_FAIL_LIMIT = round(timedelta(hours=72) / CHECK_INTERVAL)
+RELEASE_RETRIEVAL_LIMIT_S = 120
+
+ISSUE_TITLE_TEMPLATE = "mirror unhealthy: {}"
+ISSUE_BODY_TEMPLATE = """
+A bot thinks this mirror is unhealthy because: {}.
+
+Check it out.
+""".strip()
+
+
+@dataclass
+class Mirror:
+  # Static info about the mirror.
+  repo_url: str
+  repo_name: str
+  weight: int
+
+  # Mirror-checking state.
+  next_check: datetime
+  # Number of times in a row we've failed to successfully get the release file and parse
+  # a sync time.
+  consecutive_check_failures: int
+  # The last time we were able to get and parse the mirror's release file. None means we
+  # have never done that.
+  last_successful_check: Optional[datetime]
+  # The last sync time reported by the last successful pull and parse of the mirror's
+  # release file. None means we have never done that.
+  last_sync_time: Optional[datetime]
+
+
+def clone_or_update_termux_tools_repo() -> None:
+  """Call while in the workdir. We have a recent commit of termux-tools after this
+  returns."""
+  if os.path.exists(TERMUX_TOOLS_REPO):
+    os.chdir(TERMUX_TOOLS_REPO)
+    git("clean", "-dfx")
+    git("pull")
+  else:
+    git("clone", f"https://github.com/termux/{TERMUX_TOOLS_REPO}")
+    os.chdir(TERMUX_TOOLS_REPO)
+  os.chdir("..")
+
+
+def check_time() -> datetime:
+  """Chooses a time to check something. Jittered."""
+  # Choose a jitter factor in [-1, 1).
+  jitter = ((random.random() * 2) - 1) * CHECK_JITTER
+  # TODO: + CHECK_INTERVAL
+  return datetime.now(UTC) + jitter
+
+
+def load_mirrors_from_file(filepath: str) -> list[Mirror]:
+  """Creates Mirrors for each repo in the mirror definition file at the given path."""
+  mirrors: list[Mirror] = []
+  repos: dict[str, str] = {}
+  weight = -1
+  with open(filepath) as f:
+    for line in f:
+      if line.strip().startswith("#"): continue
+      var, val = line.strip().split("=")
+      match var:
+        case "WEIGHT": weight = int(val)
+        case _:        repos[var.lower()] = val.strip('"')
+  for repo_name, repo_url in repos.items():
+    mirrors.append(Mirror(repo_url=repo_url,  repo_name=repo_name, weight=int(weight),
+                          next_check=check_time(), consecutive_check_failures=0,
+                          last_successful_check=None, last_sync_time=None))
+  logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
+  return mirrors 
+
+
+def load_mirrors_from_repo() -> list[Mirror]:
+  """Creates Mirrors for each (termux package) repo in the (termux-tools git) repo.
+  Assumes $PWD contains the (termux-tools git) repo."""
+  mirrors: list[Mirror] = []
+  mirror_dir = f"{TERMUX_TOOLS_REPO}/mirrors"
+  for group in os.listdir(mirror_dir):
+    group_dir = f"{mirror_dir}/{group}"
+    if not os.path.isdir(group_dir): continue
+    for mirror_domain in os.listdir(group_dir):
+      mirror_file = f"{group_dir}/{mirror_domain}"
+      mirrors.extend(load_mirrors_from_file(mirror_file))
+  logging.debug(f"loaded from repo, mirrors={mirrors}")
+  return mirrors
+
+
+def check_and_update_mirror(mirror: Mirror) -> Mirror:
+  """Retrieve the given mirror's release file and parse a last sync time out of it.
+  Update the state in the Mirror with our success or failure. Returns the same Mirror
+  object that was passed in, but only so the type checker will yell if this doesn't
+  explicitly signal failure or success."""
+  def fail(mirror) -> Mirror:
+    mirror.consecutive_check_failures += 1
+    mirror.next_check = check_time()
+    return mirror
+
+  def succeed(mirror, sync_time) -> Mirror:
+    mirror.last_successful_check = datetime.now(UTC)
+    mirror.last_sync_time = sync_time
+    mirror.consecutive_check_failures = 0
+    logging.info(f"successfully checked {mirror.repo_url}")
+    logging.debug(f"mirror={mirror}")
+    return mirror
+
+  repo_path = "stable" if mirror.repo_name == "main" else mirror.repo_name
+  release_url = f"{mirror.repo_url}/dists/{repo_path}/Release"
+  start = time.monotonic()
+  try:
+    release_req = requests.get(release_url, timeout=RELEASE_RETRIEVAL_LIMIT_S)
+  except requests.exceptions.ConnectionError:
+    if time.monotonic() - start > RELEASE_RETRIEVAL_LIMIT_S:
+      logging.exception(f"timeout for {release_url}")
+    else:
+      logging.exception(f"connection error for {release_url}")
+    logging.debug(f"mirror={mirror}")
+    return fail(mirror)
+  if release_req.status_code != 200:
+    logging.warning(f"retrieving {release_url} returned HTTP {release_req.status_code}")
+    logging.debug(f"mirror={mirror}")
+    return fail(mirror)
+
+  for line in release_req.text.splitlines():
+    if line.startswith("Date:"):
+      # This is a sync time. line looks like this: "Date: Wed, 28 May 2025 06:20:22 UTC"
+      # Assumes:
+      #   it's always UTC, which might not be true
+      #   it uses abbreviated month names, which isn't easy to confirm because I'm
+      #     writing this in May
+      try:
+        sync_time_str = line.strip("Date: ").rstrip(" UTC").split(", ")[1]
+        sync_time = datetime.fromtimestamp(
+          datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S").timestamp(), UTC)
+        return succeed(mirror, sync_time)
+      except ValueError as ve:
+        logging.exception(f"retrieved release file at {release_url}, but couldn't "
+                          "parse the sync time")
+        logging.debug(f"mirror={mirror}")
+        return fail(mirror)
+
+  # We didn't find a sync time in the release file. Treat this as a failure.
+  logging.error(
+    f"retrieved release file at {release_url}, but couldn't find a sync time")
+  logging.debug(f"mirror={mirror}")
+  return fail(mirror)
+
+
+def file_github_issue_or_whatever(title, message) -> None:
+  """TODO: do"""
+  logging.error(f"\n{title}\n\n{message}\n")
+
+
+def judge_mirror(mirror: Mirror) -> None:
+  """Decide if a mirror looks unhealthy and do something useful if it does."""
+  if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
+    file_github_issue_or_whatever(
+        ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
+        ISSUE_BODY_TEMPLATE.format(
+          f"checking it failed {mirror.consecutive_check_failures} times in a row"))
+  elif mirror.last_sync_time and datetime.now(UTC) - mirror.last_sync_time > STALENESS_LIMIT:
+    # TODO: Staleness is vs. the source repo, not now(). Lots of false positives.
+    file_github_issue_or_whatever(
+        ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
+        ISSUE_BODY_TEMPLATE.format(
+          f"it hasn't synced since {mirror.last_sync_time}"))
+  # No complaints.
+
+
+def check_mirrors_forever(mirrors: list[Mirror]) -> None:
+  while True:
+    time.sleep(.1)
+    now = datetime.now(UTC)
+    for mirror in mirrors:
+      if mirror.next_check < now:
+        _ = check_and_update_mirror(mirror)
+        judge_mirror(mirror)
+
+
+def main() -> None:
+  logging.basicConfig(level=logging.INFO)
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument("ROOT")
+  args = parser.parse_args()
+  os.chdir(args.ROOT)
+
+  clone_or_update_termux_tools_repo()
+  mirrors = load_mirrors_from_repo()
+  check_mirrors_forever(mirrors)
+
+
+if __name__ == "__main__":
+  try:
+    main()
+  except KeyboardInterrupt:
+    pass
