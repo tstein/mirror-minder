@@ -1,4 +1,21 @@
 #!/usr/bin/env python
+"""Continuously monitor Termux repo mirrors for freshness. Files Github issues if the
+data being vended by a mirror falls too far behind the authoritative mirrors we
+initially push to, as well as if we are unable to confirm that a mirror is up to date
+due to durable availability or parsing issues.
+
+Determines the list of repos to monitor on startup and holds them forever, and does not
+cache any info about mirror freshness between runs.
+
+Major TODOs:
+  * Alert if this program's is unable to maintain current knowledge of the authoritative
+    repos.
+  * Alert on logic bugs.
+Potentially worthwhile upgrades:
+  * Handle updates to the mirror list mid-run.
+  * Auto-resolve the issues it creates when possible.
+"""
+
 
 import argparse
 import logging
@@ -17,12 +34,18 @@ from sh import git
 
 from issues import list_open_issues, open_new_issue
 
+############################
+# hard-coded configuration #
+############################
 TERMUX_TOOLS_REPO = "termux-tools"
+# Approximately how long to wait after startup before the initial checks of each mirror.
+INITIAL_CHECK_DELAY = timedelta(seconds=30)
+# Approximately how long to wait between checks after the initial round.
 CHECK_INTERVAL = timedelta(minutes=30)
 CHECK_JITTER = CHECK_INTERVAL * .05
-# TODO: Lower once we're comparing to the origin mirror's timestamps and not to now().
-STALENESS_LIMIT = timedelta(hours=7 * 24)
-CONSECUTIVE_FAIL_LIMIT = round(timedelta(hours=72) / CHECK_INTERVAL)
+
+STALENESS_LIMIT = timedelta(days=3)
+CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
 RELEASE_RETRIEVAL_LIMIT_S = 120
 
 REPORTING_REPO = "https://github.com/tstein/mirror-minder"
@@ -33,7 +56,9 @@ A bot thinks this mirror is unhealthy because: {}.
 Check it out.
 """.strip()
 
-# If true, log instead of interacting with github's issues.
+#############################
+# argument-controlled state #
+#############################
 LOG_ONLY = False
 
 
@@ -41,6 +66,7 @@ LOG_ONLY = False
 class Mirror:
   # Static info about the mirror.
   repo_url: str
+  # The name of the package repo. e.g. main, root, x11
   repo_name: str
   weight: int
 
@@ -56,6 +82,15 @@ class Mirror:
   # release file. None means we have never done that.
   last_sync_time: Optional[datetime]
 
+  def is_authoritative(self) -> bool:
+    """Mirror freshness needs to be determined against an authoritative mirror, not the
+    current wall time - it's normal for repos to sometimes go longer than the staleness
+    limit without there being any new data.
+
+    All mirrors are equal from a client perpective, so this program has secret knowledge
+    of which mirrors are authoritative."""
+    return self.repo_url.startswith("https://packages.termux.dev")
+
 
 def clone_or_update_termux_tools_repo() -> None:
   """Call while in the workdir. We have a recent commit of termux-tools after this
@@ -70,12 +105,16 @@ def clone_or_update_termux_tools_repo() -> None:
   os.chdir("..")
 
 
-def check_time() -> datetime:
-  """Chooses a time to check something. Jittered."""
+def check_time(delay: timedelta = None) -> datetime:
+  """Chooses a time to check something. Jittered.
+
+  If no delay is passed, defaults to the configured interval."""
+  if not delay:
+    delay = CHECK_INTERVAL
+
   # Choose a jitter factor in [-1, 1).
   jitter = ((random.random() * 2) - 1) * CHECK_JITTER
-  # TODO: + CHECK_INTERVAL
-  return datetime.now(UTC) + jitter
+  return datetime.now(UTC) + delay + jitter
 
 
 def load_mirrors_from_file(filepath: str) -> list[Mirror]:
@@ -92,8 +131,9 @@ def load_mirrors_from_file(filepath: str) -> list[Mirror]:
         case _:        repos[var.lower()] = val.strip('"')
   for repo_name, repo_url in repos.items():
     mirrors.append(Mirror(repo_url=repo_url,  repo_name=repo_name, weight=int(weight),
-                          next_check=check_time(), consecutive_check_failures=0,
-                          last_successful_check=None, last_sync_time=None))
+                          next_check=check_time(INITIAL_CHECK_DELAY),
+                          consecutive_check_failures=0, last_successful_check=None,
+                          last_sync_time=None))
   logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
   return mirrors 
 
@@ -112,6 +152,21 @@ def load_mirrors_from_repo() -> list[Mirror]:
   logging.info(f"loaded {len(mirrors)} mirrors from repo")
   logging.debug(f"mirrors={mirrors}")
   return mirrors
+
+
+def extract_authoritative_mirrors(mirrors: list[Mirror]) -> dict[str, Mirror]:
+  """Takes a list of mirrors and extracts the authoritative ones for each repo.
+
+  Returns a dict mapping repo names (e.g. "main") to the appropriate Mirrors."""
+  authorities = {}
+  for mirror in mirrors:
+    if mirror.is_authoritative():
+      # We need a bunch more code to do anything sensible if we believe in multiple
+      # authorities.
+      assert mirror.repo_name not in authorities
+      authorities[mirror.repo_name] = mirror
+  logging.info(f"extracted authoritative mirrors: {authorities}")
+  return authorities
 
 
 def check_and_update_mirror(mirror: Mirror) -> Mirror:
@@ -199,30 +254,48 @@ def file_github_issue(title, message) -> None:
 
 
 
-def judge_mirror(mirror: Mirror) -> None:
+def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
   """Decide if a mirror looks unhealthy and do something useful if it does."""
+  # If we're trying to judge an authority, it's a bug.
+  assert not mirror.is_authoritative()
+
+  # We need to know if we are failing to monitor the mirror.
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
     file_github_issue(
         ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
         ISSUE_BODY_TEMPLATE.format(
           f"checking it failed {mirror.consecutive_check_failures} times in a row"))
-  elif mirror.last_sync_time and datetime.now(UTC) - mirror.last_sync_time > STALENESS_LIMIT:
-    # TODO: Staleness is vs. the source repo, not now(). Lots of false positives.
+    return
+
+  # Failure to determine the sync time is counted in consecutive failures, and authority
+  # freshness needs to be handled separately. It's okay do nothing if we don't have
+  # enough info to do anything else where.
+  if not mirror.last_sync_time or not authority or not authority.last_sync_time:
+    return
+
+  # This is the freshness check we're all here for.
+  if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
     file_github_issue(
         ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
         ISSUE_BODY_TEMPLATE.format(
           f"it hasn't synced since {mirror.last_sync_time}"))
-  # No complaints.
 
 
-def check_mirrors_forever(mirrors: list[Mirror]) -> None:
+def check_mirrors_forever(mirrors: list[Mirror], authorities: dict[str, Mirror]) -> None:
   while True:
     time.sleep(.1)
     now = datetime.now(UTC)
     for mirror in mirrors:
       if mirror.next_check < now:
         _ = check_and_update_mirror(mirror)
-        judge_mirror(mirror)
+
+        # TODO: Authorities need essentially distinct logic and reporting.
+        if not mirror.is_authoritative():
+          authority = authorities.get(mirror.repo_name)
+          if not authority:
+            logging.warning(
+                f"unable to determine authority for repo_name={mirror.repo_name}")
+          judge_mirror(mirror, authority)
 
 
 def main() -> None:
@@ -242,7 +315,16 @@ def main() -> None:
 
   clone_or_update_termux_tools_repo()
   mirrors = load_mirrors_from_repo()
-  check_mirrors_forever(mirrors)
+  authorities = extract_authoritative_mirrors(mirrors)
+
+  # Authorities remain in the all-mirrors list so we can monitor them with the same
+  # logic as secondaries, but we can avoid some log noise by making sure they're checked
+  # first.
+  for mirror in mirrors:
+    if mirror.is_authoritative():
+      mirror.next_check = datetime.fromtimestamp(0, UTC)
+  mirrors.sort(key=lambda m: m.next_check)
+  check_mirrors_forever(mirrors, authorities)
 
 
 if __name__ == "__main__":
