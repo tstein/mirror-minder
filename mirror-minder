@@ -196,10 +196,10 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     if time.monotonic() - start > RELEASE_RETRIEVAL_LIMIT_S:
       logging.error(f"connect timeout for {release_url}")
     else:
-      logging.exception(f"connection error for {release_url}")
+      logging.error(f"connect failure for {release_url}")
     logging.debug(f"mirror={mirror}")
     return fail(mirror)
-  except urllib3.exceptions.ReadTimeoutError:
+  except (requests.exceptions.ReadTimeout, urllib3.exceptions.ReadTimeoutError):
     logging.error(f"read timeout for {release_url}")
     return fail(mirror)
   if release_req.status_code != 200:
