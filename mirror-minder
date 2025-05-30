@@ -41,7 +41,7 @@ TERMUX_TOOLS_REPO = "termux-tools"
 INITIAL_CHECK_DELAY = timedelta(seconds=30)
 # Approximately how long to wait between checks after the initial round.
 CHECK_INTERVAL = timedelta(minutes=30)
-CHECK_JITTER = CHECK_INTERVAL * 0.05
+CHECK_JITTER_FRACTION = .05
 
 STALENESS_LIMIT = timedelta(days=3)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
@@ -112,7 +112,7 @@ def check_time(delay: Optional[timedelta] = None) -> datetime:
     delay = CHECK_INTERVAL
 
   # Choose a jitter factor in [-1, 1).
-  jitter = ((random.random() * 2) - 1) * CHECK_JITTER
+  jitter = ((random.random() * 2) - 1) * (delay * CHECK_JITTER_FRACTION)
   return datetime.now(UTC) + delay + jitter
 
 
@@ -194,6 +194,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     mirror.last_successful_check = datetime.now(UTC)
     mirror.last_sync_time = sync_time
     mirror.consecutive_check_failures = 0
+    mirror.next_check = check_time()
     logging.info(f"successfully retrieved {release_url}")
     logging.debug(f"mirror={mirror}")
     return mirror
