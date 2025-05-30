@@ -7,7 +7,6 @@ def list_open_issues(repo: str) -> dict[str, str]:
   any error."""
   # gh really, really wants to print rich text. _tty_out=False prevents this.
   issues_json = gh("issue", "list", "-R", repo, "--json", "title,url", _tty_out=False)
-  print(issues_json.encode())
   issues = json.loads(issues_json)
   return {i["title"]: i["url"] for i in issues}
 
