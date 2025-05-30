@@ -16,7 +16,6 @@ Potentially worthwhile upgrades:
   * Auto-resolve the issues it creates when possible.
 """
 
-
 import argparse
 import logging
 import os
@@ -42,7 +41,7 @@ TERMUX_TOOLS_REPO = "termux-tools"
 INITIAL_CHECK_DELAY = timedelta(seconds=30)
 # Approximately how long to wait between checks after the initial round.
 CHECK_INTERVAL = timedelta(minutes=30)
-CHECK_JITTER = CHECK_INTERVAL * .05
+CHECK_JITTER = CHECK_INTERVAL * 0.05
 
 STALENESS_LIMIT = timedelta(days=3)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
@@ -124,18 +123,28 @@ def load_mirrors_from_file(filepath: str) -> list[Mirror]:
   weight = -1
   with open(filepath) as f:
     for line in f:
-      if line.strip().startswith("#"): continue
+      if line.strip().startswith("#"):
+        continue
       var, val = line.strip().split("=")
       match var:
-        case "WEIGHT": weight = int(val)
-        case _:        repos[var.lower()] = val.strip('"')
+        case "WEIGHT":
+          weight = int(val)
+        case _:
+          repos[var.lower()] = val.strip('"')
   for repo_name, repo_url in repos.items():
-    mirrors.append(Mirror(repo_url=repo_url,  repo_name=repo_name, weight=int(weight),
-                          next_check=check_time(INITIAL_CHECK_DELAY),
-                          consecutive_check_failures=0, last_successful_check=None,
-                          last_sync_time=None))
+    mirrors.append(
+      Mirror(
+        repo_url=repo_url,
+        repo_name=repo_name,
+        weight=int(weight),
+        next_check=check_time(INITIAL_CHECK_DELAY),
+        consecutive_check_failures=0,
+        last_successful_check=None,
+        last_sync_time=None,
+      )
+    )
   logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
-  return mirrors 
+  return mirrors
 
 
 def load_mirrors_from_repo() -> list[Mirror]:
@@ -145,7 +154,8 @@ def load_mirrors_from_repo() -> list[Mirror]:
   mirror_dir = f"{TERMUX_TOOLS_REPO}/mirrors"
   for group in os.listdir(mirror_dir):
     group_dir = f"{mirror_dir}/{group}"
-    if not os.path.isdir(group_dir): continue
+    if not os.path.isdir(group_dir):
+      continue
     for mirror_domain in os.listdir(group_dir):
       mirror_file = f"{group_dir}/{mirror_domain}"
       mirrors.extend(load_mirrors_from_file(mirror_file))
@@ -174,6 +184,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   Update the state in the Mirror with our success or failure. Returns the same Mirror
   object that was passed in, but only so the type checker will yell if this doesn't
   explicitly signal failure or success."""
+
   def fail(mirror) -> Mirror:
     mirror.consecutive_check_failures += 1
     mirror.next_check = check_time()
@@ -217,17 +228,20 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
       try:
         sync_time_str = line.strip("Date: ").rstrip(" UTC").split(", ")[1]
         sync_time = datetime.fromtimestamp(
-          datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S").timestamp(), UTC)
+          datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S").timestamp(), UTC
+        )
         return succeed(mirror, sync_time, release_url)
       except ValueError:
-        logging.exception(f"retrieved release file at {release_url}, but couldn't "
-                          "parse the sync time")
+        logging.exception(
+          f"retrieved release file at {release_url}, but couldn't parse the sync time"
+        )
         logging.debug(f"mirror={mirror}")
         return fail(mirror)
 
   # We didn't find a sync time in the release file. Treat this as a failure.
   logging.error(
-    f"retrieved release file at {release_url}, but couldn't find a sync time")
+    f"retrieved release file at {release_url}, but couldn't find a sync time"
+  )
   logging.debug(f"mirror={mirror}")
   return fail(mirror)
 
@@ -250,8 +264,8 @@ def file_github_issue(title, message) -> None:
     logging.warn(f"created issue {issue_url}")
   except (ValueError, sh.ErrorReturnCode):
     logging.exception(
-      "something went wrong communicating with github - no issue created")
-
+      "something went wrong communicating with github - no issue created"
+    )
 
 
 def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
@@ -262,9 +276,11 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
   # We need to know if we are failing to monitor the mirror.
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
     file_github_issue(
-        ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
-        ISSUE_BODY_TEMPLATE.format(
-          f"checking it failed {mirror.consecutive_check_failures} times in a row"))
+      ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
+      ISSUE_BODY_TEMPLATE.format(
+        f"checking it failed {mirror.consecutive_check_failures} times in a row"
+      ),
+    )
     return
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
@@ -276,14 +292,16 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
   # This is the freshness check we're all here for.
   if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
     file_github_issue(
-        ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
-        ISSUE_BODY_TEMPLATE.format(
-          f"it hasn't synced since {mirror.last_sync_time}"))
+      ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
+      ISSUE_BODY_TEMPLATE.format(f"it hasn't synced since {mirror.last_sync_time}"),
+    )
 
 
-def check_mirrors_forever(mirrors: list[Mirror], authorities: dict[str, Mirror]) -> None:
+def check_mirrors_forever(
+  mirrors: list[Mirror], authorities: dict[str, Mirror]
+) -> None:
   while True:
-    time.sleep(.1)
+    time.sleep(0.1)
     now = datetime.now(UTC)
     for mirror in mirrors:
       if mirror.next_check < now:
@@ -294,7 +312,8 @@ def check_mirrors_forever(mirrors: list[Mirror], authorities: dict[str, Mirror])
           authority = authorities.get(mirror.repo_name)
           if not authority:
             logging.warning(
-                f"unable to determine authority for repo_name={mirror.repo_name}")
+              f"unable to determine authority for repo_name={mirror.repo_name}"
+            )
           judge_mirror(mirror, authority)
 
 
@@ -305,7 +324,8 @@ def main() -> None:
 
   parser = argparse.ArgumentParser()
   parser.add_argument(
-    "--log-only", default=False, help="Don't touch github. If a repo is bad, just log.")
+    "--log-only", default=False, help="Don't touch github. If a repo is bad, just log."
+  )
   parser.add_argument("WORKDIR")
   args = parser.parse_args()
   if args.log_only:
