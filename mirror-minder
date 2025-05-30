@@ -105,7 +105,7 @@ def clone_or_update_termux_tools_repo() -> None:
   os.chdir("..")
 
 
-def check_time(delay: timedelta = None) -> datetime:
+def check_time(delay: Optional[timedelta] = None) -> datetime:
   """Chooses a time to check something. Jittered.
 
   If no delay is passed, defaults to the configured interval."""
@@ -179,11 +179,11 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     mirror.next_check = check_time()
     return mirror
 
-  def succeed(mirror, sync_time) -> Mirror:
+  def succeed(mirror, sync_time, release_url) -> Mirror:
     mirror.last_successful_check = datetime.now(UTC)
     mirror.last_sync_time = sync_time
     mirror.consecutive_check_failures = 0
-    logging.info(f"successfully checked {mirror.repo_url}")
+    logging.info(f"successfully retrieved {release_url}")
     logging.debug(f"mirror={mirror}")
     return mirror
 
@@ -218,8 +218,8 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
         sync_time_str = line.strip("Date: ").rstrip(" UTC").split(", ")[1]
         sync_time = datetime.fromtimestamp(
           datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S").timestamp(), UTC)
-        return succeed(mirror, sync_time)
-      except ValueError as ve:
+        return succeed(mirror, sync_time, release_url)
+      except ValueError:
         logging.exception(f"retrieved release file at {release_url}, but couldn't "
                           "parse the sync time")
         logging.debug(f"mirror={mirror}")
@@ -236,7 +236,7 @@ def file_github_issue(title, message) -> None:
   """Create an issue in the configured repo, if there isn't already an open one with the
   given title."""
   if LOG_ONLY:
-    logging.warn(f"would create issue, but running log-only:\n{title}\n{body}")
+    logging.warn(f"would create issue, but running log-only:\n{title}\n{message}")
     return
 
   try:
