@@ -57,6 +57,11 @@ LOG_ONLY = False
 
 @dataclass
 class Mirror:
+  """Represents a single mirror of a single package repo. Different repos (in apt terms)
+  are different mirrors (in terms of this class).
+
+  e.g., there is one Mirror object for https://packages-cf.termux.dev/apt/termux-main."""
+
   # Static info about the mirror.
   repo_url: str
   # The name of the package repo. e.g. main, root, x11
@@ -94,6 +99,16 @@ class Mirror:
     return f"{self.repo_url}/dists/{repo_path}/Release"
 
 
+@dataclass
+class MirrorGroup:
+  """Represents a group of mirrors behind the same domain. Failures, and particularly
+  failures-to-monitor, are likely to be correlated among repos hosted in the same place,
+  so it's useful to keep them together."""
+
+  group_domain: str
+  mirrors: list[Mirror]
+
+
 def clone_or_update_termux_tools_repo() -> None:
   """Call while in the workdir. We have a recent commit of termux-tools after this
   returns."""
@@ -119,7 +134,7 @@ def check_time(delay: Optional[timedelta] = None) -> datetime:
   return datetime.now(UTC) + delay + jitter
 
 
-def load_mirrors_from_file(filepath: str) -> list[Mirror]:
+def load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
   """Creates Mirrors for each repo in the mirror definition file at the given path."""
   mirrors: list[Mirror] = []
   repos: dict[str, str] = {}
@@ -147,37 +162,43 @@ def load_mirrors_from_file(filepath: str) -> list[Mirror]:
       )
     )
   logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
-  return mirrors
+  return MirrorGroup(domain, mirrors)
 
 
-def load_mirrors_from_repo() -> list[Mirror]:
-  """Creates Mirrors for each (termux package) repo in the (termux-tools git) repo.
-  Assumes $PWD contains the (termux-tools git) repo."""
-  mirrors: list[Mirror] = []
+def load_mirrors_from_repo() -> list[MirrorGroup]:
+  """Creates Mirrors in MirrorGroups for each (termux package) repo in the (termux-tools
+  git) repo. Assumes $PWD contains the (termux-tools git) repo."""
+  mirror_groups: list[MirrorGroup] = []
   mirror_dir = f"{TERMUX_TOOLS_REPO}/mirrors"
   for group in os.listdir(mirror_dir):
     group_dir = f"{mirror_dir}/{group}"
     if not os.path.isdir(group_dir):
       continue
-    for mirror_domain in os.listdir(group_dir):
-      mirror_file = f"{group_dir}/{mirror_domain}"
-      mirrors.extend(load_mirrors_from_file(mirror_file))
-  logging.info(f"loaded {len(mirrors)} mirrors from repo")
-  logging.debug(f"mirrors={mirrors}")
-  return mirrors
+    for domain in os.listdir(group_dir):
+      mirror_file = f"{group_dir}/{domain}"
+      mirror_groups.append(load_mirrors_from_file(domain, mirror_file))
+  mirror_count = sum([len(m_g.mirrors) for m_g in mirror_groups])
+  logging.info(
+    f"loaded {len(mirror_groups)} mirror groups, {mirror_count} mirrors from repo"
+  )
+  logging.debug(f"mirror_groups={mirror_groups}")
+  return mirror_groups
 
 
-def extract_authoritative_mirrors(mirrors: list[Mirror]) -> dict[str, Mirror]:
-  """Takes a list of mirrors and extracts the authoritative ones for each repo.
+def extract_authoritative_mirrors(
+  mirror_groups: list[MirrorGroup],
+) -> dict[str, Mirror]:
+  """Takes a list of mirror groups and extracts the authoritative mirrors for each repo.
 
   Returns a dict mapping repo names (e.g. "main") to the appropriate Mirrors."""
   authorities = {}
-  for mirror in mirrors:
-    if mirror.is_authoritative():
-      # We need a bunch more code to do anything sensible if we believe in multiple
-      # authorities.
-      assert mirror.repo_name not in authorities
-      authorities[mirror.repo_name] = mirror
+  for mirror_group in mirror_groups:
+    for mirror in mirror_group.mirrors:
+      if mirror.is_authoritative():
+        # We need a bunch more code to do anything sensible if we believe in multiple
+        # authorities.
+        assert mirror.repo_name not in authorities
+        authorities[mirror.repo_name] = mirror
   logging.info(f"extracted authoritative mirrors: {authorities}")
   return authorities
 
@@ -298,23 +319,24 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
 
 
 def check_mirrors_forever(
-  mirrors: list[Mirror], authorities: dict[str, Mirror]
+  mirror_groups: list[MirrorGroup], authorities: dict[str, Mirror]
 ) -> None:
   while True:
     time.sleep(0.1)
     now = datetime.now(UTC)
-    for mirror in mirrors:
-      if mirror.next_check < now:
-        _ = check_and_update_mirror(mirror)
+    for group in mirror_groups:
+      for mirror in group.mirrors:
+        if mirror.next_check < now:
+          _ = check_and_update_mirror(mirror)
 
-        # TODO: Authorities need essentially distinct logic and reporting.
-        if not mirror.is_authoritative():
-          authority = authorities.get(mirror.repo_name)
-          if not authority:
-            logging.warning(
-              f"unable to determine authority for repo_name={mirror.repo_name}"
-            )
-          judge_mirror(mirror, authority)
+          # TODO: Authorities need essentially distinct logic and reporting.
+          if not mirror.is_authoritative():
+            authority = authorities.get(mirror.repo_name)
+            if not authority:
+              logging.warning(
+                f"unable to determine authority for repo_name={mirror.repo_name}"
+              )
+            judge_mirror(mirror, authority)
 
 
 def main() -> None:
@@ -337,17 +359,17 @@ def main() -> None:
   os.chdir(args.WORKDIR)
 
   clone_or_update_termux_tools_repo()
-  mirrors = load_mirrors_from_repo()
-  authorities = extract_authoritative_mirrors(mirrors)
+  mirror_groups = load_mirrors_from_repo()
+  authorities = extract_authoritative_mirrors(mirror_groups)
 
   # Authorities remain in the all-mirrors list so we can monitor them with the same
   # logic as secondaries, but we can avoid some log noise by making sure they're checked
   # first.
-  for mirror in mirrors:
-    if mirror.is_authoritative():
-      mirror.next_check = datetime.fromtimestamp(0, UTC)
-  mirrors.sort(key=lambda m: m.next_check)
-  check_mirrors_forever(mirrors, authorities)
+  for group in mirror_groups:
+    for mirror in group.mirrors:
+      if mirror.is_authoritative():
+        mirror.next_check = datetime.fromtimestamp(0, UTC)
+  check_mirrors_forever(mirror_groups, authorities)
 
 
 if __name__ == "__main__":
