@@ -31,7 +31,7 @@ import requests
 import sh
 from sh import git
 
-from issues import list_open_issues, open_new_issue
+from issues import list_open_issues, open_new_issue, search_issues
 
 ############################
 # hard-coded configuration #
@@ -41,7 +41,7 @@ TERMUX_TOOLS_REPO = "termux-tools"
 INITIAL_CHECK_DELAY = timedelta(seconds=30)
 # Approximately how long to wait between checks after the initial round.
 CHECK_INTERVAL = timedelta(minutes=30)
-CHECK_JITTER_FRACTION = .05
+CHECK_JITTER_FRACTION = 0.05
 
 STALENESS_LIMIT = timedelta(days=3)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
@@ -255,14 +255,11 @@ def file_github_issue(title, message) -> None:
     return
 
   try:
-    open_issues = list_open_issues(REPORTING_REPO)
-    if title in open_issues.keys():
-      url = open_issues[title]
-      logging.info(f"existing issue: {url}")
-      return
-
-    issue_url = open_new_issue(REPORTING_REPO, title, message)
-    logging.warn(f"created issue {issue_url}")
+    if url := search_issues(REPORTING_REPO, title):
+      logging.info(f"found existing issue: {url}")
+    else:
+      issue_url = open_new_issue(REPORTING_REPO, title, message)
+      logging.warn(f"created issue {issue_url}")
   except (ValueError, sh.ErrorReturnCode):
     logging.exception(
       "something went wrong communicating with github - no issue created"
