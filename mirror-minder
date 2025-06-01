@@ -14,6 +14,9 @@ Major TODOs:
 Potentially worthwhile upgrades:
   * Handle updates to the mirror list mid-run.
   * Auto-resolve the issues it creates when possible.
+  * Cache knowledge of repos between runs to reduce the time to first useful work after
+    a restart. Not really necessarily on the timelines where getting these alerts are
+    important.
 """
 
 import argparse
@@ -45,6 +48,9 @@ CHECK_JITTER_FRACTION = 0.05
 
 STALENESS_LIMIT = timedelta(days=3)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
+# How long to wait before giving up on retrieving a release file, end-to-end. This
+# should be generous: the `main` Release is around 13 KiB, and this timeout should
+# represent a so-slow-it's-basically-stalled level of throughput.
 RELEASE_RETRIEVAL_LIMIT_S = 120
 
 REPORTING_CODE_REPO = "https://github.com/tstein/mirror-minder"
@@ -73,6 +79,8 @@ class Mirror:
   # Number of times in a row we've failed to successfully get the release file and parse
   # a sync time.
   consecutive_check_failures: int
+  # The last time we attempted to check the mirror. None means we have never tried.
+  last_check: Optional[datetime]
   # The last time we were able to get and parse the mirror's release file. None means we
   # have never done that.
   last_successful_check: Optional[datetime]
@@ -105,7 +113,7 @@ class MirrorGroup:
   failures-to-monitor, are likely to be correlated among repos hosted in the same place,
   so it's useful to keep them together."""
 
-  group_domain: str
+  domain: str
   mirrors: list[Mirror]
 
 
@@ -157,6 +165,7 @@ def load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
         weight=int(weight),
         next_check=check_time(INITIAL_CHECK_DELAY),
         consecutive_check_failures=0,
+        last_check=None,
         last_successful_check=None,
         last_sync_time=None,
       )
@@ -210,11 +219,13 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   explicitly signal failure or success."""
 
   def fail(mirror) -> Mirror:
+    mirror.last_check = datetime.now(UTC)
     mirror.consecutive_check_failures += 1
     mirror.next_check = check_time()
     return mirror
 
   def succeed(mirror, sync_time, release_url) -> Mirror:
+    mirror.last_check = datetime.now(UTC)
     mirror.last_successful_check = datetime.now(UTC)
     mirror.last_sync_time = sync_time
     mirror.consecutive_check_failures = 0
@@ -270,11 +281,11 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   return fail(mirror)
 
 
-def file_github_issue(repo_domain: str, repo_name: str, reason: str) -> None:
+def file_github_issue(repo_domain: str, details: str) -> None:
   """Create an issue in the configured repo, if there isn't already an open one for this
   repo."""
-  title = issue_title(repo_domain, repo_name)
-  body = issue_body(repo_domain, repo_name, reason)
+  title = issue_title(repo_domain)
+  body = issue_body(repo_domain, details)
   if LOG_ONLY:
     logging.warning(f"would create issue, but running log-only:\n{title}\n{body}")
     return
@@ -291,31 +302,63 @@ def file_github_issue(repo_domain: str, repo_name: str, reason: str) -> None:
     )
 
 
-def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
-  """Decide if a mirror looks unhealthy and do something useful if it does."""
+def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str]:
+  """Decide if a mirror looks unhealthy and return an explanation of why or why not."""
   # If we're trying to judge an authority, it's a bug.
   assert not mirror.is_authoritative()
 
   # We need to know if we are failing to monitor the mirror.
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
-    file_github_issue(
-      mirror.domain,
-      mirror.repo_name,
+    return (
+      False,
       f"checking it failed {mirror.consecutive_check_failures} times in a row",
     )
-    return
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
   # freshness needs to be handled separately. It's okay do nothing if we don't have
   # enough info to do anything else where.
   if not mirror.last_sync_time or not authority or not authority.last_sync_time:
-    return
+    return True, "no authority available and failure/staleness limits not yet exceeded"
 
   # This is the freshness check we're all here for.
   if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
-    file_github_issue(
-      mirror.domain, mirror.repo_name, f"it hasn't synced since {mirror.last_sync_time}"
+    return False, f"hasn't synced since {mirror.last_sync_time}"
+
+  return True, f"looks good, last synced {mirror.last_sync_time}"
+
+
+def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> None:
+  """Decide if a mirror group looks unhealthy and do something useful if it does.
+
+  Does nothing if we haven't at least tried to check every mirror in the group at least
+  once."""
+  if not all([m.last_check for m in group.mirrors]):
+    logging.info(
+      f"not judging mirror group at {group.domain} until all mirrors are checked at least once"
     )
+    return
+
+  group_healthy = True
+  explanations: list[tuple[Mirror, str]] = []
+  for mirror in group.mirrors:
+    # This path judges mirrors against authorities. It does not handle authority issues.
+    if mirror.is_authoritative():
+      continue
+    mirror_healthy, explanation = judge_mirror(
+      mirror, authorities.get(mirror.repo_name)
+    )
+    group_healthy = group_healthy and mirror_healthy
+    explanations.append((mirror, explanation))
+  if group_healthy:
+    return
+
+  def p(mirror, explanation):
+    return f"## {mirror.repo_name}\n\n{explanation}\n"
+
+  detail_parts = [p(m, e) for (m, e) in explanations]
+  details = "\n==========\n".join(detail_parts)
+
+  file_github_issue(group.domain, details)
 
 
 def check_mirrors_forever(
@@ -325,18 +368,14 @@ def check_mirrors_forever(
     time.sleep(0.1)
     now = datetime.now(UTC)
     for group in mirror_groups:
+      did_anything = False
       for mirror in group.mirrors:
         if mirror.next_check < now:
           _ = check_and_update_mirror(mirror)
+          did_anything = True
 
-          # TODO: Authorities need essentially distinct logic and reporting.
-          if not mirror.is_authoritative():
-            authority = authorities.get(mirror.repo_name)
-            if not authority:
-              logging.warning(
-                f"unable to determine authority for repo_name={mirror.repo_name}"
-              )
-            judge_mirror(mirror, authority)
+      if did_anything:
+        judge_mirror_group(group, authorities)
 
 
 def main() -> None:

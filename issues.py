@@ -40,17 +40,20 @@ def open_new_issue(repo: str, title: str, body: str) -> str:
   return output.splitlines()[-1]
 
 
-def issue_title(package_repo_domain: str, repo_name: str) -> str:
-  """Returns an issue title for the given package repo domain and name. This should be
-  stable, and is used for determining whether there's already an issue for a problem
-  with a given repo host."""
-  return f"[mirror-minder] {package_repo_domain} / {repo_name} is unhealthy"
+def issue_title(package_repo_domain: str) -> str:
+  """Returns an issue title for the given package repo domain. This should be stable,
+  and is used for determining whether there's already an issue for a problem with a
+  given repo host."""
+  return f"[mirror-minder] {package_repo_domain} is unhealthy"
 
 
-def issue_body(package_repo_domain: str, repo_name: str, reason: str) -> str:
+def issue_body(package_repo_domain: str, details: str) -> str:
   """Returns an issue body appropriate for notifying humans of a problem."""
   return f"""
-[`mirror-minder`](https://github.com/tstein/mirror-minder) has detected an issue with the `{repo_name}` repo on `https://{package_repo_domain}`: {reason}.
+[`mirror-minder`](https://github.com/tstein/mirror-minder) has detected an issue with \
+repo on `https://{package_repo_domain}`.
+
+{details}
 
 Last updated: {datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")}
-    """.strip()
+""".strip()
