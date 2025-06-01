@@ -31,7 +31,7 @@ import requests
 import sh
 from sh import git
 
-from issues import list_open_issues, open_new_issue, search_issues
+from issues import issue_body, issue_title, open_new_issue, search_issues
 
 ############################
 # hard-coded configuration #
@@ -47,13 +47,7 @@ STALENESS_LIMIT = timedelta(days=3)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
 RELEASE_RETRIEVAL_LIMIT_S = 120
 
-REPORTING_REPO = "https://github.com/tstein/mirror-minder"
-ISSUE_TITLE_TEMPLATE = "mirror unhealthy: {}"
-ISSUE_BODY_TEMPLATE = """
-A bot thinks this mirror is unhealthy because: {}.
-
-Check it out.
-""".strip()
+REPORTING_CODE_REPO = "https://github.com/tstein/mirror-minder"
 
 #############################
 # argument-controlled state #
@@ -81,6 +75,10 @@ class Mirror:
   # release file. None means we have never done that.
   last_sync_time: Optional[datetime]
 
+  @property
+  def domain(self) -> str:
+    return self.repo_url.split("/")[2]
+
   def is_authoritative(self) -> bool:
     """Mirror freshness needs to be determined against an authoritative mirror, not the
     current wall time - it's normal for repos to sometimes go longer than the staleness
@@ -89,6 +87,11 @@ class Mirror:
     All mirrors are equal from a client perpective, so this program has secret knowledge
     of which mirrors are authoritative."""
     return self.repo_url.startswith("https://packages.termux.dev")
+
+  def release_url(self) -> str:
+    """Returns the full URL of the Release file for this repo."""
+    repo_path = "stable" if self.repo_name == "main" else self.repo_name
+    return f"{self.repo_url}/dists/{repo_path}/Release"
 
 
 def clone_or_update_termux_tools_repo() -> None:
@@ -199,8 +202,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     logging.debug(f"mirror={mirror}")
     return mirror
 
-  repo_path = "stable" if mirror.repo_name == "main" else mirror.repo_name
-  release_url = f"{mirror.repo_url}/dists/{repo_path}/Release"
+  release_url = mirror.release_url()
   start = time.monotonic()
   try:
     release_req = requests.get(release_url, timeout=RELEASE_RETRIEVAL_LIMIT_S)
@@ -247,19 +249,21 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   return fail(mirror)
 
 
-def file_github_issue(title, message) -> None:
-  """Create an issue in the configured repo, if there isn't already an open one with the
-  given title."""
+def file_github_issue(repo_domain: str, repo_name: str, reason: str) -> None:
+  """Create an issue in the configured repo, if there isn't already an open one for this
+  repo."""
+  title = issue_title(repo_domain, repo_name)
+  body = issue_body(repo_domain, repo_name, reason)
   if LOG_ONLY:
-    logging.warn(f"would create issue, but running log-only:\n{title}\n{message}")
+    logging.warning(f"would create issue, but running log-only:\n{title}\n{body}")
     return
 
   try:
-    if url := search_issues(REPORTING_REPO, title):
+    if url := search_issues(REPORTING_CODE_REPO, title):
       logging.info(f"found existing issue: {url}")
     else:
-      issue_url = open_new_issue(REPORTING_REPO, title, message)
-      logging.warn(f"created issue {issue_url}")
+      issue_url = open_new_issue(REPORTING_CODE_REPO, title, body)
+      logging.warning(f"created issue {issue_url}")
   except (ValueError, sh.ErrorReturnCode):
     logging.exception(
       "something went wrong communicating with github - no issue created"
@@ -274,10 +278,9 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
   # We need to know if we are failing to monitor the mirror.
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
     file_github_issue(
-      ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
-      ISSUE_BODY_TEMPLATE.format(
-        f"checking it failed {mirror.consecutive_check_failures} times in a row"
-      ),
+      mirror.domain,
+      mirror.repo_name,
+      f"checking it failed {mirror.consecutive_check_failures} times in a row",
     )
     return
 
@@ -290,8 +293,7 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> None:
   # This is the freshness check we're all here for.
   if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
     file_github_issue(
-      ISSUE_TITLE_TEMPLATE.format(mirror.repo_url),
-      ISSUE_BODY_TEMPLATE.format(f"it hasn't synced since {mirror.last_sync_time}"),
+      mirror.domain, mirror.repo_name, f"it hasn't synced since {mirror.last_sync_time}"
     )
 
 
@@ -322,12 +324,15 @@ def main() -> None:
 
   parser = argparse.ArgumentParser()
   parser.add_argument(
-    "--log-only", default=False, help="Don't touch github. If a repo is bad, just log."
+    "--log-only",
+    action="store_true",
+    default=False,
+    help="Don't touch github. If a repo is bad, just log.",
   )
   parser.add_argument("WORKDIR")
   args = parser.parse_args()
   if args.log_only:
-    logging.warn("running in log-only mode")
+    logging.warning("running in log-only mode")
     LOG_ONLY = True
   os.chdir(args.WORKDIR)
 
