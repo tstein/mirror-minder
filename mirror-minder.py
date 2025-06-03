@@ -177,8 +177,10 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
       f"checking it failed {mirror.consecutive_check_failures} times in a row",
     )
   if mirror.consecutive_check_failures:
-    logging.debug(f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
-                  "consecutive check failures - not enough to alert")
+    logging.debug(
+      f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
+      "consecutive check failures - not enough to alert"
+    )
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
   # freshness needs to be handled separately. It's okay do nothing if we don't have
@@ -256,10 +258,7 @@ def main() -> None:
     help="don't touch the issue tracker: if a package repo is bad, just log",
   )
   parser.add_argument(
-    "-v",
-    action="store_true",
-    default=False,
-    help="enable debug logging"
+    "-v", action="store_true", default=False, help="enable debug logging"
   )
   parser.add_argument("WORKDIR")
   args = parser.parse_args()
