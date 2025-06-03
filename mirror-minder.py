@@ -118,11 +118,10 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
 
   for line in release_req.text.splitlines():
     if line.startswith("Date:"):
-      # This is a sync time. line looks like this: "Date: Wed, 28 May 2025 06:20:22 UTC"
+      # This is a sync time. line looks like this: "Date: Tue, 3 Jun 2025 06:18:01 UTC"
       # Assumes:
       #   it's always UTC, which might not be true
-      #   it uses abbreviated month names, which isn't easy to confirm because I'm
-      #     writing this in May
+      #   it uses abbreviated month names
       try:
         sync_time_str = line.strip("Date: ").rstrip(" UTC").split(", ")[1]
         sync_time = datetime.fromtimestamp(
