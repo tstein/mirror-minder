@@ -13,17 +13,14 @@ from sh import gh
 def search_issues(repo: str, title: str) -> Optional[str]:
   """Search for an open issue with the given title in the given repo. Returns a URL to
   the most recent issue matching the title, or None if no issues match."""
+  # fmt: off
   issues_json = gh(
-    "issue",
-    "list",
-    "-R",
-    repo,
-    "--json",
-    "title,url,createdAt",
-    "--search",
-    f"is:open {title}",
-    _tty_out=False,
+    "issue", "list", "-R", repo,
+    "--json", "title,url,createdAt",
+    "--search", f"is:open {title}",
+    _tty_out=False # disables color, so we don't have to deal with those escapes
   )
+  # fmt: on
   issues = json.loads(issues_json)
   if not issues:
     return None
