@@ -176,6 +176,9 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
       False,
       f"checking it failed {mirror.consecutive_check_failures} times in a row",
     )
+  if mirror.consecutive_check_failures:
+    logging.debug(f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
+                  "consecutive check failures - not enough to alert")
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
   # freshness needs to be handled separately. It's okay do nothing if we don't have
@@ -245,17 +248,30 @@ def check_mirrors_forever(
 def main() -> None:
   global LOG_ONLY
 
-  logging.basicConfig(level=logging.INFO)
-
   parser = argparse.ArgumentParser()
   parser.add_argument(
     "--log-only",
     action="store_true",
     default=False,
-    help="Don't touch the issue tracker. If a package repo is bad, just log.",
+    help="don't touch the issue tracker: if a package repo is bad, just log",
+  )
+  parser.add_argument(
+    "-v",
+    action="store_true",
+    default=False,
+    help="enable debug logging"
   )
   parser.add_argument("WORKDIR")
   args = parser.parse_args()
+
+  # No timestamp because you should be running this in a systemd unit, or piping it to
+  # `ts` or something.
+  log_format = "%(levelname).1s %(filename)s:%(lineno)d(%(funcName)s) %(message)s"
+  log_level = logging.INFO
+  if args.v:
+    log_level = logging.DEBUG
+  logging.basicConfig(format=log_format, level=log_level)
+
   if args.log_only:
     logging.warning("running in log-only mode")
     LOG_ONLY = True
