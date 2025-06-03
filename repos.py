@@ -1,11 +1,15 @@
 import logging
 import os
+import pickle
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
-from typing import Optional
+from itertools import chain
+from typing import Optional, Self
 
 from sh import git
+
+from util import PROGRAM_NAME
 
 # Approximately how long to wait after startup before the initial checks of each mirror.
 INITIAL_CHECK_DELAY = timedelta(seconds=30)
@@ -31,6 +35,7 @@ class Mirror:
   weight: int
 
   # Mirror-checking state.
+  # If you change this, don't forget to also change .update_from().
   next_check: datetime
   # Number of times in a row we've failed to successfully get the release file and parse
   # a sync time.
@@ -44,9 +49,14 @@ class Mirror:
   # release file. None means we have never done that.
   last_sync_time: Optional[datetime]
 
-  @property
-  def domain(self) -> str:
-    return self.repo_url.split("/")[2]
+  def update_from(self, other: Self) -> None:
+    """Load all mirror-checking state from the other mirror object into this one."""
+    # Ignore other.next_check, so longer delays from previous runs don't override
+    # shorter delays before the initial checks on this one.
+    self.consecutive_check_failures = other.consecutive_check_failures
+    self.last_check = other.last_check
+    self.last_successful_check = other.last_successful_check
+    self.last_sync_time = other.last_sync_time
 
   def is_authoritative(self) -> bool:
     """Mirror freshness needs to be determined against an authoritative mirror, not the
@@ -98,7 +108,7 @@ def clone_or_update_termux_tools_repo() -> None:
   os.chdir("..")
 
 
-def load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
+def __load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
   """Creates Mirrors for each repo in the mirror definition file at the given path."""
   mirrors: list[Mirror] = []
   repos: dict[str, str] = {}
@@ -130,7 +140,7 @@ def load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
   return MirrorGroup(domain, mirrors)
 
 
-def load_mirrors_from_repo() -> list[MirrorGroup]:
+def _load_mirrors_from_repo() -> list[MirrorGroup]:
   """Creates Mirrors in MirrorGroups for each (termux package) repo in the (termux-tools
   git) repo. Assumes $PWD contains the (termux-tools git) repo."""
   mirror_groups: list[MirrorGroup] = []
@@ -141,10 +151,92 @@ def load_mirrors_from_repo() -> list[MirrorGroup]:
       continue
     for domain in os.listdir(group_dir):
       mirror_file = f"{group_dir}/{domain}"
-      mirror_groups.append(load_mirrors_from_file(domain, mirror_file))
+      mirror_groups.append(__load_mirrors_from_file(domain, mirror_file))
   mirror_count = sum([len(m_g.mirrors) for m_g in mirror_groups])
   logging.info(
     f"loaded {len(mirror_groups)} mirror groups, {mirror_count} mirrors from repo"
   )
   logging.debug(f"mirror_groups={mirror_groups}")
   return mirror_groups
+
+
+def _get_usable_cache_path() -> str:
+  """Returns a path to a cache file, and if it doesn't exist, creates any necessary
+  parent directories for it to be immediately writable."""
+  cache_dir = os.path.expanduser(f"~/.cache/{PROGRAM_NAME}")
+  os.makedirs(cache_dir, exist_ok=True)
+  return f"{cache_dir}/mirror_cache"
+
+
+def _load_mirrors_from_cache() -> Optional[list[MirrorGroup]]:
+  """Creates Mirrors in MirrorGroups from the cache file, if any exists. Returns None if
+  there is no cache file or if failing to read or understand it fails for any reason."""
+  cache_path = _get_usable_cache_path()
+
+  try:
+    with open(cache_path, "rb") as f:
+      groups = pickle.load(f)
+  except FileNotFoundError:
+    logging.info(f"no cache file at {cache_path}, starting fresh")
+    return None
+  except pickle.UnpicklingError:
+    logging.exception(f"failed to unpickle {cache_path}; starting fresh")
+    return None
+
+  # Sanity check the object we loaded so we can fail fast if it's wrong.
+  if not isinstance(groups, list) or not all(
+    [isinstance(o, MirrorGroup) for o in groups]
+  ):
+    logging.error(
+      "unpickled successfully, but what we unpickled wasn't list[MirrorGroup]: "
+      f"{groups}"
+    )
+    logging.error("starting fresh")
+    return None
+
+  mirror_count = sum([len(g.mirrors) for g in groups])
+  logging.info(
+    f"loaded {mirror_count} mirrors in {len(groups)} groups from {cache_path}"
+  )
+  return groups
+
+
+def maybe_write_cache(groups: list[MirrorGroup]) -> None:
+  """Write the groups to the cache file if it's time to do so. Whether it's time to do
+  is decided interally by this function."""
+  cache_path = _get_usable_cache_path()
+  with open(cache_path, "wb") as f:
+    pickle.dump(groups, f)
+
+
+def load_mirrors() -> list[MirrorGroup]:
+  """Creates Mirrors in MirrorGroups for each (termux package) repo in the (termux-tools
+  git) repo, loading all useful info in the mirror cache in the process. Assumes $PWD
+  contains the (termux-tools git) repo."""
+  from_repo = _load_mirrors_from_repo()
+  if not (from_cache := _load_mirrors_from_cache()):
+    return from_repo
+
+  def mirror_map(groups: list[MirrorGroup]) -> dict[str, Mirror]:
+    """Returns a map from URLs to Mirrors corresponding to the given list of
+    MirrorGroups."""
+    return {m.repo_url: m for m in chain.from_iterable([g.mirrors for g in groups])}
+
+  repo_map = mirror_map(from_repo)
+  cache_map = mirror_map(from_cache)
+
+  for url, repo_mirror in repo_map.items():
+    if cache_mirror := cache_map.get(url):
+      repo_mirror.update_from(cache_mirror)
+
+  repo_urls = set(repo_map.keys())
+  cache_urls = set(cache_map.keys())
+  mirrors_added = repo_urls - cache_urls
+  mirrors_removed = cache_urls - repo_urls
+  logging.info(
+    f"merged cache, {len(mirrors_added)} mirrors added, {len(mirrors_removed)} "
+    "removed since last cache update"
+  )
+  logging.debug(f"mirrors_added={mirrors_added}")
+  logging.debug(f"mirrors_removed={mirrors_removed}")
+  return from_repo

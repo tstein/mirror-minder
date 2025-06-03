@@ -9,6 +9,8 @@ from typing import Optional
 
 from sh import gh
 
+from util import PROGRAM_NAME
+
 
 def search_issues(repo: str, title: str) -> Optional[str]:
   """Search for an open issue with the given title in the given repo. Returns a URL to
@@ -41,13 +43,13 @@ def issue_title(package_repo_domain: str) -> str:
   """Returns an issue title for the given package repo domain. This should be stable,
   and is used for determining whether there's already an issue for a problem with a
   given repo host."""
-  return f"[mirror-minder] {package_repo_domain} is unhealthy"
+  return f"[{PROGRAM_NAME}] {package_repo_domain} is unhealthy"
 
 
 def issue_body(package_repo_domain: str, details: str) -> str:
   """Returns an issue body appropriate for notifying humans of a problem."""
   return f"""
-[`mirror-minder`](https://github.com/tstein/mirror-minder) has detected an issue with \
+[`{PROGRAM_NAME}`](https://github.com/tstein/mirror-minder) has detected an issue with \
 repo on `https://{package_repo_domain}`.
 
 {details}

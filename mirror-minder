@@ -14,9 +14,6 @@ Major TODOs:
 Potentially worthwhile upgrades:
   * Handle updates to the mirror list mid-run.
   * Auto-resolve the issues it creates when possible.
-  * Cache knowledge of repos between runs to reduce the time to first useful work after
-    a restart. Not really necessarily on the timelines where getting these alerts are
-    important.
 """
 
 import argparse
@@ -37,7 +34,8 @@ from repos import (
   Mirror,
   MirrorGroup,
   clone_or_update_termux_tools_repo,
-  load_mirrors_from_repo,
+  load_mirrors,
+  maybe_write_cache,
   next_check_time,
 )
 
@@ -241,6 +239,7 @@ def check_mirrors_forever(
 
       if did_anything:
         judge_mirror_group(group, authorities)
+        maybe_write_cache(mirror_groups)
 
 
 def main() -> None:
@@ -253,7 +252,7 @@ def main() -> None:
     "--log-only",
     action="store_true",
     default=False,
-    help="Don't touch github. If a repo is bad, just log.",
+    help="Don't touch the issue tracker. If a package repo is bad, just log.",
   )
   parser.add_argument("WORKDIR")
   args = parser.parse_args()
@@ -263,7 +262,7 @@ def main() -> None:
   os.chdir(args.WORKDIR)
 
   clone_or_update_termux_tools_repo()
-  mirror_groups = load_mirrors_from_repo()
+  mirror_groups = load_mirrors()
   authorities = extract_authoritative_mirrors(mirror_groups)
 
   # Authorities remain in the all-mirrors list so we can monitor them with the same
