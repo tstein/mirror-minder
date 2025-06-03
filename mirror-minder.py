@@ -174,7 +174,7 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
     return (
       False,
-      f"checking it failed {mirror.consecutive_check_failures} times in a row",
+      f"⭕ retrieving it failed {mirror.consecutive_check_failures} times in a row",
     )
   if mirror.consecutive_check_failures:
     logging.debug(
@@ -186,13 +186,16 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
   # freshness needs to be handled separately. It's okay do nothing if we don't have
   # enough info to do anything else where.
   if not mirror.last_sync_time or not authority or not authority.last_sync_time:
-    return True, "no authority available and failure/staleness limits not yet exceeded"
+    return (
+      True,
+      "🟨 authority freshness unknown and failure/staleness limits not yet exceeded",
+    )
 
   # This is the freshness check we're all here for.
   if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
-    return False, f"hasn't synced since {mirror.last_sync_time}"
+    return False, f"⭕ hasn't synced since {mirror.last_sync_time}"
 
-  return True, f"looks good, last synced {mirror.last_sync_time}"
+  return True, f"🟢 looks good, last synced {mirror.last_sync_time}"
 
 
 def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> None:
@@ -221,10 +224,16 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     return
 
   def p(mirror, explanation):
-    return f"## {mirror.repo_name}\n\n{explanation}\n"
+    return f"""
+## {mirror.repo_name}
+
+{explanation}
+
+links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
+""".strip()
 
   detail_parts = [p(m, e) for (m, e) in explanations]
-  details = "\n==========\n".join(detail_parts)
+  details = "\n".join(detail_parts)
 
   file_github_issue(group.domain, details)
 

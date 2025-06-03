@@ -50,7 +50,7 @@ def issue_body(package_repo_domain: str, details: str) -> str:
   """Returns an issue body appropriate for notifying humans of a problem."""
   return f"""
 [`{PROGRAM_NAME}`](https://github.com/tstein/mirror-minder) has detected an issue with \
-repo on `https://{package_repo_domain}`.
+the package repo(s) on `https://{package_repo_domain}`.
 
 {details}
 
