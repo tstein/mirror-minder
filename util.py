@@ -2,4 +2,4 @@ import os.path
 import sys
 
 
-PROGRAM_NAME = os.path.basename(sys.argv[0])
+PROGRAM_NAME = os.path.basename(sys.argv[0]).rstrip(".py")

@@ -126,7 +126,7 @@ def __load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
   for repo_name, repo_url in repos.items():
     mirrors.append(
       Mirror(
-        repo_url=repo_url,
+        repo_url=repo_url.rstrip("/"),
         repo_name=repo_name,
         weight=int(weight),
         next_check=next_check_time(INITIAL_CHECK_DELAY),
