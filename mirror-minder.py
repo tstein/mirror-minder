@@ -38,6 +38,7 @@ from repos import (
   maybe_write_cache,
   next_check_time,
 )
+from util import readable_timedelta
 
 ############################
 # hard-coded configuration #
@@ -191,10 +192,21 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
     )
 
   # This is the freshness check we're all here for.
-  if authority.last_sync_time - mirror.last_sync_time > STALENESS_LIMIT:
-    return False, f"⭕ hasn't synced since {mirror.last_sync_time}"
+  staleness = authority.last_sync_time - mirror.last_sync_time
+  if staleness > STALENESS_LIMIT:
+    return (
+      False,
+      f"⭕ hasn't synced since {mirror.last_sync_time} "
+      f"(`{readable_timedelta(staleness)}` older than "
+      f"[authority]({authority.repo_url}))",
+    )
 
-  return True, f"🟢 looks good, last synced {mirror.last_sync_time}"
+  return (
+    True,
+    f"🟢 looks good, last synced {mirror.last_sync_time} "
+    f"(`{readable_timedelta(staleness)}` older than "
+    f"[authority]({authority.repo_url}))",
+  )
 
 
 def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> None:
