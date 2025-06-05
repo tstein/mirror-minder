@@ -51,8 +51,7 @@ class Mirror:
 
   def update_from(self, other: Self) -> None:
     """Load all mirror-checking state from the other mirror object into this one."""
-    # Ignore other.next_check, so longer delays from previous runs don't override
-    # shorter delays before the initial checks on this one.
+    self.next_check = other.next_check
     self.consecutive_check_failures = other.consecutive_check_failures
     self.last_check = other.last_check
     self.last_successful_check = other.last_successful_check
@@ -123,13 +122,14 @@ def __load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
           weight = int(val)
         case _:
           repos[var.lower()] = val.strip('"')
+
   for repo_name, repo_url in repos.items():
     mirrors.append(
       Mirror(
         repo_url=repo_url.rstrip("/"),
         repo_name=repo_name,
         weight=int(weight),
-        next_check=next_check_time(INITIAL_CHECK_DELAY),
+        next_check=datetime.fromtimestamp(0, UTC),
         consecutive_check_failures=0,
         last_check=None,
         last_successful_check=None,
@@ -145,13 +145,21 @@ def _load_mirrors_from_repo() -> list[MirrorGroup]:
   git) repo. Assumes $PWD contains the (termux-tools git) repo."""
   mirror_groups: list[MirrorGroup] = []
   mirror_dir = f"{TERMUX_TOOLS_REPO}/mirrors"
-  for group in os.listdir(mirror_dir):
-    group_dir = f"{mirror_dir}/{group}"
-    if not os.path.isdir(group_dir):
+  # It's possible for a domain to appear in multiple regions. Only keep the first when
+  # that happens.
+  domains_seen: set[str] = set()
+  for region in os.listdir(mirror_dir):
+    region_dir = f"{mirror_dir}/{region}"
+    if not os.path.isdir(region_dir):
       continue
-    for domain in os.listdir(group_dir):
-      mirror_file = f"{group_dir}/{domain}"
-      mirror_groups.append(__load_mirrors_from_file(domain, mirror_file))
+    for domain in os.listdir(region_dir):
+      if domain in domains_seen:
+        logging.info(f"ignoring duplicate mirror def for domain={domain}")
+      else:
+        mirror_file = f"{region_dir}/{domain}"
+        mirror_groups.append(__load_mirrors_from_file(domain, mirror_file))
+        domains_seen.add(domain)
+
   mirror_count = sum([len(m_g.mirrors) for m_g in mirror_groups])
   logging.info(
     f"loaded {len(mirror_groups)} mirror groups, {mirror_count} mirrors from repo"
@@ -228,6 +236,8 @@ def load_mirrors() -> list[MirrorGroup]:
   for url, repo_mirror in repo_map.items():
     if cache_mirror := cache_map.get(url):
       repo_mirror.update_from(cache_mirror)
+    # Set a first update time in the near future, overriding anything in the cache.
+    repo_mirror.next_check = next_check_time(INITIAL_CHECK_DELAY)
 
   repo_urls = set(repo_map.keys())
   cache_urls = set(cache_map.keys())
