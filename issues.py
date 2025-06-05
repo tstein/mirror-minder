@@ -9,7 +9,7 @@ from typing import Optional
 
 from sh import gh
 
-from util import PROGRAM_NAME
+from util import PROGRAM_NAME, doc_url
 
 
 def search_issues(repo: str, title: str) -> Optional[str]:
@@ -55,7 +55,8 @@ def issue_body(package_repo_domain: str, details: str) -> str:
   """Returns an issue body appropriate for notifying humans of a problem."""
   return f"""
 [`{PROGRAM_NAME}`🤖](https://github.com/tstein/mirror-minder) has detected an issue with \
-the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}).
+the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}). \
+[Playbook here.]({doc_url("playbook")})
 
 {details}
 
