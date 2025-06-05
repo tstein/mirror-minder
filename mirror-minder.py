@@ -34,7 +34,14 @@ from typing import Optional
 import requests
 import sh
 
-from issues import issue_body, issue_title, open_new_issue, search_issues, update_issue
+from issues import (
+  close_issue,
+  issue_body,
+  issue_title,
+  open_new_issue,
+  search_issues,
+  update_issue,
+)
 from repos import (
   CHECK_INTERVAL,
   Mirror,
@@ -50,8 +57,8 @@ from util import readable_timedelta
 # hard-coded configuration #
 ############################
 STALENESS_LIMIT = timedelta(days=3)
-AUTHORITY_UPDATE_GRACE_PERIOD = timedelta(days=1)
-CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
+AUTHORITY_UPDATE_GRACE_PERIOD = timedelta(hours=12)
+CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=1) / CHECK_INTERVAL)
 # How long to wait before giving up on retrieving a release file, end-to-end. This
 # should be generous: the `main` Release is around 13 KiB, and this timeout should
 # represent a so-slow-it's-basically-stalled level of throughput.
@@ -151,26 +158,42 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   return fail(mirror)
 
 
-def file_github_issue(repo_domain: str, details: str) -> None:
+def update_github_issue(repo_domain: str, details: str, create: bool) -> None:
   """Create or update an issue in the configured repo with the latest problem details on
   a repo."""
   title = issue_title(repo_domain)
   body = issue_body(repo_domain, details)
   if LOG_ONLY:
-    logging.warning(f"would create issue, but running log-only:\n{title}\n{body}")
+    logging.warning(f"would update issue, but running log-only:\n{title}\n{body}")
     return
 
   try:
     if url := search_issues(REPORTING_CODE_REPO, title):
       update_issue(url, body)
       logging.info(f"updated existing issue: {url}")
-    else:
+    elif create:
       issue_url = open_new_issue(REPORTING_CODE_REPO, title, body)
       logging.warning(f"created issue {issue_url}")
   except (ValueError, sh.ErrorReturnCode):
-    logging.exception(
-      "something went wrong communicating with github - no issue created"
-    )
+    logging.exception("something went wrong communicating with github")
+
+
+def close_github_issue(repo_domain: str, details: str) -> None:
+  """Close an issue in the configured repo, updating the details one last time before
+  doing so."""
+  title = issue_title(repo_domain)
+  body = issue_body(repo_domain, details)
+  if LOG_ONLY:
+    logging.warning(f"would close issue, but running log-only:\n{title}\n{body}")
+    return
+
+  try:
+    if url := search_issues(REPORTING_CODE_REPO, title):
+      update_issue(url, body)
+      close_issue(url)
+      logging.info(f"closed issue: {url}")
+  except (ValueError, sh.ErrorReturnCode):
+    logging.exception("something went wrong communicating with github")
 
 
 def judge_mirror(
@@ -216,7 +239,7 @@ def judge_mirror(
         None,
         f"🟨 in grace period: hasn't synced since {mirror.last_sync_time} "
         f"(`{readable_timedelta(staleness)}` older than "
-        f"[authority]({authority.repo_url})), but authority was only updated "
+        f"[authority]({authority.repo_url})), but authority was updated only "
         f"`{readable_timedelta(authority_age)}` ago",
       )
     else:
@@ -255,20 +278,19 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     mirror_healthy, explanation = judge_mirror(
       mirror, authorities.get(mirror.repo_name)
     )
-    group_healthy = group_healthy and (mirror_healthy is None or mirror_healthy)
     explanations.append((mirror, mirror_healthy, explanation))
   if not explanations:
     logging.info(f"not judging group for {group.domain}")
     return
 
+  any_red = any([mirror_healthy is False for _, mirror_healthy, _ in explanations])
+  all_green = all([mirror_healthy is True for _, mirror_healthy, _ in explanations])
   short_mirror_health = ", ".join(
     [f"{m.repo_name} health={h}" for m, h, _ in explanations]
   )
   logging.info(
-    f"judged group for {group.domain} as {'healthy' if group_healthy else 'unhealthy'}: {short_mirror_health}"
+    f"judged group for {group.domain}, any_red={any_red}, all_green={all_green}: {short_mirror_health}"
   )
-  if group_healthy:
-    return
 
   def p(mirror, explanation):
     return f"""
@@ -281,7 +303,13 @@ links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
 
   detail_parts = [p(m, e) for (m, _, e) in explanations]
   details = "\n".join(detail_parts)
-  file_github_issue(group.domain, details)
+
+  # If everything looks good, close any open issue. Otherwise, if there's any red,
+  # create-or-update, and if it's green+yellow, update only if it already exists.
+  if all_green:
+    close_github_issue(group.domain, details)
+  else:
+    update_github_issue(group.domain, details, create=any_red)
 
 
 def check_mirrors_forever(

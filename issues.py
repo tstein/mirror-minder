@@ -44,6 +44,12 @@ def update_issue(url: str, body: str) -> None:
   gh("issue", "edit", url, "-b", body)
 
 
+def close_issue(url: str) -> None:
+  """Closes an existing issue. Does nothing if the issue is already closed. Raises on
+  any error."""
+  gh("issue", "close", url)
+
+
 def issue_title(package_repo_domain: str) -> str:
   """Returns an issue title for the given package repo domain. This should be stable,
   and is used for determining whether there's already an issue for a problem with a
@@ -58,7 +64,7 @@ def issue_body(package_repo_domain: str, details: str) -> str:
 the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}). \
 [Playbook here.]({doc_url("playbook")})
 
-{details}
+last updated: {datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")}
 
-Last updated: {datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")}
+{details}
 """.strip()
