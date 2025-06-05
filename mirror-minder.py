@@ -50,6 +50,7 @@ from util import readable_timedelta
 # hard-coded configuration #
 ############################
 STALENESS_LIMIT = timedelta(days=3)
+AUTHORITY_UPDATE_GRACE_PERIOD = timedelta(days=1)
 CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
 # How long to wait before giving up on retrieving a release file, end-to-end. This
 # should be generous: the `main` Release is around 13 KiB, and this timeout should
@@ -171,8 +172,13 @@ def file_github_issue(repo_domain: str, details: str) -> None:
     )
 
 
-def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str]:
-  """Decide if a mirror looks unhealthy and return an explanation of why or why not."""
+def judge_mirror(
+  mirror: Mirror, authority: Optional[Mirror]
+) -> tuple[Optional[bool], str]:
+  """Decide if a mirror looks unhealthy and return an explanation of why or why not.
+
+  Returns Optional[bool] for each mirror because the decision here is trinary - the
+  mirror is healthy, unhealthy, or indeterminate."""
   # If we're trying to judge an authority, it's a bug.
   assert not mirror.is_authoritative()
 
@@ -193,19 +199,32 @@ def judge_mirror(mirror: Mirror, authority: Optional[Mirror]) -> tuple[bool, str
   # enough info to do anything else where.
   if not mirror.last_sync_time or not authority or not authority.last_sync_time:
     return (
-      True,
+      None,
       "🟨 authority freshness unknown and failure/staleness limits not yet exceeded",
     )
 
   # This is the freshness check we're all here for.
   staleness = authority.last_sync_time - mirror.last_sync_time
   if staleness > STALENESS_LIMIT:
-    return (
-      False,
-      f"⭕ hasn't synced since {mirror.last_sync_time} "
-      f"(`{readable_timedelta(staleness)}` older than "
-      f"[authority]({authority.repo_url}))",
-    )
+    # When an authority updates infrequentely relative to the staleness limit, diligent
+    # mirrors will appear stale the moment it does update. Not helpful to make noise in
+    # this situation - give mirrors time to update.
+    authority_age = datetime.now(UTC) - authority.last_sync_time
+    if authority_age < AUTHORITY_UPDATE_GRACE_PERIOD:
+      return (
+        None,
+        f"🟨 in grace period: hasn't synced since {mirror.last_sync_time} "
+        f"(`{readable_timedelta(staleness)}` older than "
+        f"[authority]({authority.repo_url})), but authority was only updated "
+        f"`{readable_timedelta(authority_age)}` ago",
+      )
+    else:
+      return (
+        False,
+        f"⭕ hasn't synced since {mirror.last_sync_time} "
+        f"(`{readable_timedelta(staleness)}` older than "
+        f"[authority]({authority.repo_url}))",
+      )
 
   return (
     True,
@@ -227,7 +246,7 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     return
 
   group_healthy = True
-  explanations: list[tuple[Mirror, str]] = []
+  explanations: list[tuple[Mirror, Optional[bool], str]] = []
   for mirror in group.mirrors:
     # This path judges mirrors against authorities. It does not handle authority issues.
     if mirror.is_authoritative():
@@ -235,8 +254,18 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     mirror_healthy, explanation = judge_mirror(
       mirror, authorities.get(mirror.repo_name)
     )
-    group_healthy = group_healthy and mirror_healthy
-    explanations.append((mirror, explanation))
+    group_healthy = group_healthy and (mirror_healthy is None or mirror_healthy)
+    explanations.append((mirror, mirror_healthy, explanation))
+  if not explanations:
+    logging.info(f"not judging group for {group.domain}")
+    return
+
+  short_mirror_health = ", ".join(
+    [f"{m.repo_name} health={h}" for m, h, _ in explanations]
+  )
+  logging.info(
+    f"judged group for {group.domain} as {'healthy' if group_healthy else 'unhealthy'}: {short_mirror_health}"
+  )
   if group_healthy:
     return
 
@@ -249,9 +278,8 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
 links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
 """.strip()
 
-  detail_parts = [p(m, e) for (m, e) in explanations]
+  detail_parts = [p(m, e) for (m, _, e) in explanations]
   details = "\n".join(detail_parts)
-
   file_github_issue(group.domain, details)
 
 
@@ -264,7 +292,9 @@ def check_mirrors_forever(
     for group in mirror_groups:
       did_anything = False
       for mirror in group.mirrors:
+        logging.debug(f"considering mirror={mirror}")
         if mirror.next_check < now:
+          logging.debug(f"checking mirror={mirror}")
           _ = check_and_update_mirror(mirror)
           did_anything = True
 
@@ -312,6 +342,9 @@ def main() -> None:
   for group in mirror_groups:
     for mirror in group.mirrors:
       if mirror.is_authoritative():
+        logging.info(
+          f"identified authority for repo_name={mirror.repo_name}, repo_url={mirror.repo_url}"
+        )
         mirror.next_check = datetime.fromtimestamp(0, UTC)
   check_mirrors_forever(mirror_groups, authorities)
 
