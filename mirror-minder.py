@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+# /// script
+# dependencies = [
+#   "requests",
+#   "sh",
+# ]
+# ///
 """Continuously monitor Termux repo mirrors for freshness. Files Github issues if the
 data being vended by a mirror falls too far behind the authoritative mirrors we
 initially push to, as well as if we are unable to confirm that a mirror is up to date
