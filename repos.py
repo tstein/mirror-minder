@@ -14,7 +14,7 @@ from util import PROGRAM_NAME
 # Approximately how long to wait after startup before the initial checks of each mirror.
 INITIAL_CHECK_DELAY = timedelta(seconds=30)
 # Approximately how long to wait between checks after the initial round.
-CHECK_INTERVAL = timedelta(minutes=30)
+CHECK_INTERVAL = timedelta(minutes=60)
 CHECK_JITTER_FRACTION = 0.05
 
 TERMUX_TOOLS_REPO = "termux-tools"

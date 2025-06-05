@@ -56,9 +56,17 @@ from util import readable_timedelta
 ############################
 # hard-coded configuration #
 ############################
+# When a mirror's state is this much older than the authoritative mirror for its repo,
+# we want to alert.
 STALENESS_LIMIT = timedelta(days=3)
+# If an authority gets an update, we won't know how stale any particular mirror was
+# before that update. If it's been long enough between authority updates, well-behaved
+# mirrors will immediately look stale. Give them a chance to pick up new states before
+# alerting.
 AUTHORITY_UPDATE_GRACE_PERIOD = timedelta(hours=12)
-CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=1) / CHECK_INTERVAL)
+# If we go this many attempts to monitor any mirror in a row without successfully
+# connecting, retrieving, and extracting the most recent sync time, we want to alert.
+CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
 # How long to wait before giving up on retrieving a release file, end-to-end. This
 # should be generous: the `main` Release is around 13 KiB, and this timeout should
 # represent a so-slow-it's-basically-stalled level of throughput.
@@ -210,12 +218,13 @@ def judge_mirror(
   if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
     return (
       False,
-      f"⭕ retrieving it failed {mirror.consecutive_check_failures} times in a row",
+      f"⭕ retrieving it failed {mirror.consecutive_check_failures} times in a row, "
+      f"last successful retrieval was {mirror.last_successful_check or '`<never>`'}",
     )
   if mirror.consecutive_check_failures:
-    logging.debug(
+    logging.info(
       f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
-      "consecutive check failures - not enough to alert"
+      f"consecutive check failures - will alert at {CONSECUTIVE_FAIL_LIMIT}"
     )
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
