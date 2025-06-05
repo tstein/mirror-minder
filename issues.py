@@ -39,6 +39,11 @@ def open_new_issue(repo: str, title: str, body: str) -> str:
   return output.splitlines()[-1]
 
 
+def update_issue(url: str, body: str) -> None:
+  """Updates the body of an existing issue. Raises on any error."""
+  gh("issue", "edit", url, "-b", body)
+
+
 def issue_title(package_repo_domain: str) -> str:
   """Returns an issue title for the given package repo domain. This should be stable,
   and is used for determining whether there's already an issue for a problem with a

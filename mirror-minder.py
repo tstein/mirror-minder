@@ -34,7 +34,7 @@ from typing import Optional
 import requests
 import sh
 
-from issues import issue_body, issue_title, open_new_issue, search_issues
+from issues import issue_body, issue_title, open_new_issue, search_issues, update_issue
 from repos import (
   CHECK_INTERVAL,
   Mirror,
@@ -152,8 +152,8 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
 
 
 def file_github_issue(repo_domain: str, details: str) -> None:
-  """Create an issue in the configured repo, if there isn't already an open one for this
-  repo."""
+  """Create or update an issue in the configured repo with the latest problem details on
+  a repo."""
   title = issue_title(repo_domain)
   body = issue_body(repo_domain, details)
   if LOG_ONLY:
@@ -162,7 +162,8 @@ def file_github_issue(repo_domain: str, details: str) -> None:
 
   try:
     if url := search_issues(REPORTING_CODE_REPO, title):
-      logging.info(f"found existing issue: {url}")
+      update_issue(url, body)
+      logging.info(f"updated existing issue: {url}")
     else:
       issue_url = open_new_issue(REPORTING_CODE_REPO, title, body)
       logging.warning(f"created issue {issue_url}")
