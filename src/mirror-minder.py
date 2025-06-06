@@ -17,14 +17,13 @@ Major TODOs:
   * Alert if this program's is unable to maintain current knowledge of the authoritative
     repos.
   * Alert on logic bugs.
-Potentially worthwhile upgrades:
-  * Handle updates to the mirror list mid-run.
 """
 
 import argparse
 import logging
 import os
 import os.path
+import random
 import time
 import urllib3
 from datetime import datetime, timedelta, UTC
@@ -55,6 +54,9 @@ from util import readable_timedelta
 ############################
 # hard-coded configuration #
 ############################
+# Approximately how frequently to stop monitoring, update the mirror defs from the repo,
+# and start monitoring again.
+MONITOR_PERIOD_S = 24 * 3600  # 1 day
 # When a mirror's state is this much older than the authoritative mirror for its repo,
 # we want to alert.
 STALENESS_LIMIT = timedelta(days=3)
@@ -319,10 +321,27 @@ links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
     update_github_issue(group.domain, details, create=any_red)
 
 
-def check_mirrors_forever(
-  mirror_groups: list[MirrorGroup], authorities: dict[str, Mirror]
-) -> None:
-  while True:
+def monitor_mirrors_for_a_while(monitor_period_s: float) -> None:
+  """Update the mirror definitions, load the cache, and then monitor mirrors for a
+  while. No is state persisted between calls to this function except via the cache."""
+  # Load and process mirrors.
+  clone_or_update_termux_tools_repo()
+  mirror_groups = load_mirrors()
+  authorities = extract_authoritative_mirrors(mirror_groups)
+  # Authorities remain in the all-mirrors list so we can monitor them with the same
+  # logic as secondaries, but we can avoid some log noise by making sure they're checked
+  # first.
+  for group in mirror_groups:
+    for mirror in group.mirrors:
+      if mirror.is_authoritative():
+        logging.info(
+          f"identified authority for repo_name={mirror.repo_name}, repo_url={mirror.repo_url}"
+        )
+        mirror.next_check = datetime.fromtimestamp(0, UTC)
+
+  # Enter a finite loop of mirror monitoring.
+  start = time.monotonic()
+  while time.monotonic() - start < monitor_period_s:
     time.sleep(0.1)
     now = datetime.now(UTC)
     for group in mirror_groups:
@@ -337,6 +356,9 @@ def check_mirrors_forever(
       if did_anything:
         judge_mirror_group(group, authorities)
         maybe_write_cache(mirror_groups)
+
+  # Write the cache one more time, just for cleanliness.
+  maybe_write_cache(mirror_groups)
 
 
 def main() -> None:
@@ -368,21 +390,13 @@ def main() -> None:
     LOG_ONLY = True
   os.chdir(args.WORKDIR)
 
-  clone_or_update_termux_tools_repo()
-  mirror_groups = load_mirrors()
-  authorities = extract_authoritative_mirrors(mirror_groups)
-
-  # Authorities remain in the all-mirrors list so we can monitor them with the same
-  # logic as secondaries, but we can avoid some log noise by making sure they're checked
-  # first.
-  for group in mirror_groups:
-    for mirror in group.mirrors:
-      if mirror.is_authoritative():
-        logging.info(
-          f"identified authority for repo_name={mirror.repo_name}, repo_url={mirror.repo_url}"
-        )
-        mirror.next_check = datetime.fromtimestamp(0, UTC)
-  check_mirrors_forever(mirror_groups, authorities)
+  while True:
+    # Choose a jitter fraction in [-.1, .1).
+    monitor_period_s = round(
+      MONITOR_PERIOD_S + ((random.random() * 2) - 1) * (MONITOR_PERIOD_S / 10)
+    )
+    logging.info(f"monitoring mirrors for {monitor_period_s} seconds")
+    monitor_mirrors_for_a_while(monitor_period_s)
 
 
 if __name__ == "__main__":
