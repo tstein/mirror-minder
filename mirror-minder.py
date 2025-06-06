@@ -277,7 +277,6 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     )
     return
 
-  group_healthy = True
   explanations: list[tuple[Mirror, Optional[bool], str]] = []
   for mirror in group.mirrors:
     # This path judges mirrors against authorities. It does not handle authority issues.
