@@ -19,7 +19,6 @@ Major TODOs:
   * Alert on logic bugs.
 Potentially worthwhile upgrades:
   * Handle updates to the mirror list mid-run.
-  * Auto-resolve the issues it creates when possible.
 """
 
 import argparse
