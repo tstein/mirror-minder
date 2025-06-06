@@ -26,5 +26,6 @@ To remove a mirror, send a PR to
 [`termux/termux-tools`](https://github.com/termux/termux-tools) that:
 1) Deletes the mirror definition from the
 [`mirrors/`](https://github.com/termux/termux-tools/tree/master/mirrors) directory.
-2) Adds the deleted mirror to
+2) Removes the deleted mirror from the regional `pkgdata_` variables, and adds it to
+`pkgdata_MIRRORS_REMOVED`, in
 [`mirrors/Makefile.am`](https://github.com/termux/termux-tools/blob/master/mirrors/Makefile.am).
