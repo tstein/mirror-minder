@@ -239,32 +239,34 @@ def judge_mirror(
 
   # This is the freshness check we're all here for.
   staleness = authority.last_sync_time - mirror.last_sync_time
+  authority_age = datetime.now(UTC) - authority.last_sync_time
   if staleness > STALENESS_LIMIT:
     # When an authority updates infrequentely relative to the staleness limit, diligent
     # mirrors will appear stale the moment it does update. Not helpful to make noise in
     # this situation - give mirrors time to update.
-    authority_age = datetime.now(UTC) - authority.last_sync_time
     if authority_age < AUTHORITY_UPDATE_GRACE_PERIOD:
       return (
         None,
-        f"🟨 in grace period: hasn't synced since {mirror.last_sync_time} "
-        f"(`{readable_timedelta(staleness)}` older than "
-        f"[authority]({authority.repo_url})), but authority was updated only "
-        f"`{readable_timedelta(authority_age)}` ago",
+        f"🟨 (in grace period) hasn't synced since {mirror.last_sync_time}: "
+        f"`{readable_timedelta(staleness)}` older than "
+        f"[its authority]({authority.repo_url}), but its authority was updated only "
+        f"`{readable_timedelta(authority_age)}` ago"
       )
     else:
       return (
         False,
-        f"⭕ hasn't synced since {mirror.last_sync_time} "
-        f"(`{readable_timedelta(staleness)}` older than "
-        f"[authority]({authority.repo_url}))",
+        f"⭕ hasn't synced since {mirror.last_sync_time}: "
+        f"`{readable_timedelta(staleness)}` older than "
+        f"[its authority]({authority.repo_url}), which was updated "
+        f"`{readable_timedelta(authority_age)}` ago"
       )
 
   return (
     True,
-    f"🟢 looks good, last synced {mirror.last_sync_time} "
-    f"(`{readable_timedelta(staleness)}` older than "
-    f"[authority]({authority.repo_url}))",
+    f"🟢 looks good, last synced {mirror.last_sync_time}: "
+    f"`{readable_timedelta(staleness)}` older than "
+    f"[its authority]({authority.repo_url}), which was updated "
+    f"`{readable_timedelta(authority_age)}` ago"
   )
 
 
