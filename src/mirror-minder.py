@@ -223,9 +223,12 @@ def judge_mirror(
       f"last successful retrieval was {mirror.last_successful_check or '`<never>`'}",
     )
   if mirror.consecutive_check_failures:
+    alert_eta = (
+      CONSECUTIVE_FAIL_LIMIT - mirror.consecutive_check_failures
+    ) * CHECK_INTERVAL
     logging.info(
       f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
-      f"consecutive check failures - will alert at {CONSECUTIVE_FAIL_LIMIT}"
+      f"consecutive check failures - will alert in about {readable_timedelta(alert_eta)}"
     )
 
   # Failure to determine the sync time is counted in consecutive failures, and authority
@@ -250,7 +253,7 @@ def judge_mirror(
         f"🟨 (in grace period) hasn't synced since {mirror.last_sync_time}: "
         f"`{readable_timedelta(staleness)}` older than "
         f"[its authority]({authority.repo_url}), but its authority was updated only "
-        f"`{readable_timedelta(authority_age)}` ago"
+        f"`{readable_timedelta(authority_age)}` ago",
       )
     else:
       return (
@@ -258,7 +261,7 @@ def judge_mirror(
         f"⭕ hasn't synced since {mirror.last_sync_time}: "
         f"`{readable_timedelta(staleness)}` older than "
         f"[its authority]({authority.repo_url}), which was updated "
-        f"`{readable_timedelta(authority_age)}` ago"
+        f"`{readable_timedelta(authority_age)}` ago",
       )
 
   return (
@@ -266,7 +269,7 @@ def judge_mirror(
     f"🟢 looks good, last synced {mirror.last_sync_time}: "
     f"`{readable_timedelta(staleness)}` older than "
     f"[its authority]({authority.repo_url}), which was updated "
-    f"`{readable_timedelta(authority_age)}` ago"
+    f"`{readable_timedelta(authority_age)}` ago",
   )
 
 
