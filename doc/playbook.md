@@ -14,8 +14,8 @@ FQDN. Each mirror is given one of three judgments, plus an explanation:
 
 The intent is that `mirror-minder` only alerts humans once it's unambiguously time for
 humans to act, so it is immediately appropriate to @ the mirror operator as soon as an
-issue is opened. You can look up whom to contact in the [`termux-packages`
-wiki](https://github.com/termux/termux-packages/wiki/Mirrors).
+issue is opened. You can look up whom to contact in the [Mirrors page of
+the `termux-packages` wiki](https://github.com/termux/termux-packages/wiki/Mirrors).
 
 If we cannot reach them, or they cannot restore their mirror to availability and
 freshness, the only move is to remove it from the mirror lists. We do not currently have
@@ -29,3 +29,6 @@ To remove a mirror, send a PR to
 2) Removes the deleted mirror from the regional `pkgdata_` variables, and adds it to
 `pkgdata_MIRRORS_REMOVED`, in
 [`mirrors/Makefile.am`](https://github.com/termux/termux-tools/blob/master/mirrors/Makefile.am).
+3) Remove the mirror from the [Mirrors page of the `termux-packages`
+wiki](https://github.com/termux/termux-packages/wiki/Mirrors). If you do not have
+permissions to do this, you will need to ask someone who does.
