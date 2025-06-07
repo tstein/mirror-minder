@@ -7,20 +7,27 @@ FQDN. Each mirror is given one of three judgments, plus an explanation:
 
 * A hollow red circle (⭕) means the repo had an issue that definitely requires attention.
 * A yellow square (🟨) means the repo has an issue that doesn't yet require attention,
-  or that `mirror-minder` doesn't have enough info to assert a problem. An issue with
-  yellow squares but no hollow red circles is not actionable, and is either a bug in
-  mirror-minder or represents an issue that should be closed and hasn't been yet.
+  or that `mirror-minder` doesn't have enough info to assert a problem.
 * A full green circle (🟢) means the repo passed all checks.
 
 The intent is that `mirror-minder` only alerts humans once it's unambiguously time for
-humans to act, so it is immediately appropriate to @ the mirror operator as soon as an
-issue is opened. You can look up whom to contact in the [Mirrors page of
-the `termux-packages` wiki](https://github.com/termux/termux-packages/wiki/Mirrors).
+humans to act, so it is immediately appropriate to @ the mirror operator as soon as you
+see an issue with at least one red mirror. You can look up whom to contact in the
+[Mirrors page of the `termux-packages`
+wiki](https://github.com/termux/termux-packages/wiki/Mirrors).
 
-If we cannot reach them, or they cannot restore their mirror to availability and
-freshness, the only move is to remove it from the mirror lists. We do not currently have
-a standard for how long to wait for a response before disabling a mirror. If you have an
-interesting case, mention it in your nearest dev chat so we can develop one.
+An issue should never be opened without at least one definite problem, but it's possible
+for an issue that was correctly opened to change to all yellow or all green+yellow,
+particularly if the authority updates and the stale repo enters a grace period as a
+result. Check the edit history on the issue, the state of the repo, and use your
+judgment to decide whether to contact the operator, to wait, or to close the bug.
+(`mirror-minder` will open a new issue immediately if a yellow mirror you thought was
+going to go green goes red instead.)
+
+If we cannot reach the operator, or they cannot restore their mirror to availability and
+freshness, the only option is to remove it from the mirror lists. We do not currently
+have a standard for how long to wait for a response before disabling a mirror. If you
+have an interesting case, mention it in your nearest dev chat so we can develop one.
 
 To remove a mirror, send a PR to
 [`termux/termux-tools`](https://github.com/termux/termux-tools) that:
