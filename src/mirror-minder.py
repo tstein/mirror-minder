@@ -216,7 +216,7 @@ def judge_mirror(
   assert not mirror.is_authoritative()
 
   # We need to know if we are failing to monitor the mirror.
-  if mirror.consecutive_check_failures > CONSECUTIVE_FAIL_LIMIT:
+  if mirror.consecutive_check_failures >= CONSECUTIVE_FAIL_LIMIT:
     return (
       False,
       f"⭕ retrieving it failed {mirror.consecutive_check_failures} times in a row, "
