@@ -230,14 +230,29 @@ def judge_mirror(
       f"mirror {mirror.repo_url} has {mirror.consecutive_check_failures} "
       f"consecutive check failures - will alert in about {readable_timedelta(alert_eta)}"
     )
-
-  # Failure to determine the sync time is counted in consecutive failures, and authority
-  # freshness needs to be handled separately. It's okay do nothing if we don't have
-  # enough info to do anything else where.
-  if not mirror.last_sync_time or not authority or not authority.last_sync_time:
     return (
       None,
-      "🟨 authority freshness unknown and failure/staleness limits not yet exceeded",
+      f"🟨 retrieving it failed {mirror.consecutive_check_failures} times in a row "
+      f"(about `{readable_timedelta(alert_eta)}` until it exceeds the unavailability "
+      "limit) - last successful retrieval was "
+      f"{mirror.last_successful_check or '`<never>`'}",
+    )
+
+  # Both of these cases should be prevented by ordering and filtering above this
+  # function, and it's a bug if we take either of these branches, but we can do
+  # something sensible in that case.
+  # 1. Mirror has never been checked. Assumes mirror.consecutive_check_failures > 0 has
+  # been exhaustively handled above.
+  if not mirror.last_sync_time:
+    return (
+      None,
+      "⁉️ mirror has never been checked (and it's a bug if you're seeing this)",
+    )
+  # 2. Authority freshness needs to be handled separately.
+  if not authority or not authority.last_sync_time:
+    return (
+      None,
+      "⁉️ authority freshness unknown (and it's a bug if you're seeing this)",
     )
 
   # This is the freshness check we're all here for.
