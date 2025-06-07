@@ -1,4 +1,6 @@
-# what to do when `mirror-minder` complains about a mirror
+# when `mirror-minder` complains about a mirror
+
+## how to read these issues
 
 `mirror-minder`'s issues are meant to include as much context as possible on what looks
 wrong, what it does and doesn't know, and where you might want to look next. Each issue
@@ -9,6 +11,8 @@ FQDN. Each mirror is given one of three judgments, plus an explanation:
 * A yellow square (🟨) means the repo has an issue that doesn't yet require attention,
   or that `mirror-minder` doesn't have enough info to assert a problem.
 * A full green circle (🟢) means the repo passed all checks.
+
+## what to do
 
 The intent is that `mirror-minder` only alerts humans once it's unambiguously time for
 humans to act, so it is immediately appropriate to @ the mirror operator as soon as you
@@ -21,8 +25,16 @@ for an issue that was correctly opened to change to all yellow or all green+yell
 particularly if the authority updates and the stale repo enters a grace period as a
 result. Check the edit history on the issue, the state of the repo, and use your
 judgment to decide whether to contact the operator, to wait, or to close the bug.
-(`mirror-minder` will open a new issue immediately if a yellow mirror you thought was
-going to go green goes red instead.)
+(`mirror-minder` will open a new issue immediately if a yellow mirror that you thought
+was going to go green turns red instead.)
+
+## if the operator fixes the issue
+
+`mirror-minder` updates the initial comment of its issues continuously, and will
+auto-resolve the issues it opens on the next check if the all the mirrors on a domain
+turn healthy.
+
+## if the operator can't or won't fix the issue
 
 If we cannot reach the operator, or they cannot restore their mirror to availability and
 freshness, the only option is to remove it from the mirror lists. We do not currently
