@@ -75,6 +75,9 @@ RELEASE_RETRIEVAL_LIMIT_S = 120
 
 REPORTING_CODE_REPO = "https://github.com/tstein/mirror-minder"
 
+# Headers to use in all HTTP requests.
+BASE_HEADERS = {"User-Agent": "Debian APT-HTTP/1.3 (0.0.0+really-mirror-minder)"}
+
 #############################
 # argument-controlled state #
 #############################
@@ -124,7 +127,9 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   release_url = mirror.release_url()
   start = time.monotonic()
   try:
-    release_req = requests.get(release_url, timeout=RELEASE_RETRIEVAL_LIMIT_S)
+    release_req = requests.get(
+      release_url, headers=BASE_HEADERS, timeout=RELEASE_RETRIEVAL_LIMIT_S
+    )
   except requests.exceptions.ConnectionError:
     if time.monotonic() - start > RELEASE_RETRIEVAL_LIMIT_S:
       logging.error(f"connect timeout for {release_url}")
