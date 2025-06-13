@@ -72,6 +72,8 @@ CONSECUTIVE_FAIL_LIMIT = round(timedelta(days=3) / CHECK_INTERVAL)
 # should be generous: the `main` Release is around 13 KiB, and this timeout should
 # represent a so-slow-it's-basically-stalled level of throughput.
 RELEASE_RETRIEVAL_LIMIT_S = 120
+# Whether we should automatically close open issues when the mirrors they cover go green.
+AUTO_CLOSE = False
 
 REPORTING_CODE_REPO = "https://github.com/tstein/mirror-minder"
 
@@ -338,9 +340,10 @@ links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
   detail_parts = [p(m, e) for (m, _, e) in explanations]
   details = "\n".join(detail_parts)
 
-  # If everything looks good, close any open issue. Otherwise, if there's any red,
-  # create-or-update, and if it's green+yellow, update only if it already exists.
-  if all_green:
+  # If everything looks good and auto-closure is enabled, close any open issue.
+  # Otherwise, if there's any red, create-or-update, and if it's green+yellow, update
+  # only if it already exists.
+  if all_green and AUTO_CLOSE:
     close_github_issue(group.domain, details)
   else:
     update_github_issue(group.domain, details, create=any_red)
