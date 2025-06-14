@@ -25,6 +25,7 @@ import os
 import os.path
 import random
 import time
+from requests.exceptions import ChunkedEncodingError
 import urllib3
 from datetime import datetime, timedelta, UTC
 from typing import Optional
@@ -139,9 +140,16 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
       logging.error(f"connect failure for {release_url}")
     logging.debug(f"mirror={mirror}")
     return fail(mirror)
-  except (requests.exceptions.ReadTimeout, urllib3.exceptions.ReadTimeoutError):
+  except requests.exceptions.ReadTimeout:
     logging.error(f"read timeout for {release_url}")
     return fail(mirror)
+  except requests.exceptions.ChunkedEncodingError:
+    logging.error(f"incomplete read for {release_url}")
+    return fail(mirror)
+  except requests.exceptions.RequestException:
+    logging.exception(f"unhandled requests exception for {release_url}")
+    return fail(mirror)
+
   if release_req.status_code != 200:
     logging.warning(f"retrieving {release_url} returned HTTP {release_req.status_code}")
     logging.debug(f"mirror={mirror}")
