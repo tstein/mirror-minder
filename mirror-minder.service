@@ -1,0 +1,23 @@
+# This is a systemd unit meant to run mirror-minder as an unprivileged user, in a
+# systemd user daemon. To set this up:
+# 1. Grant that user linger permissions. (`sudo loginctl enable-linger $USERNAME`)
+# 2. Copy this unit file into that user's systemd config. (`~/.config/systemd/user/`)
+# 3. Edit the copy of this file so the ExecStart line reflects the directory you cloned
+#    mirror-minder into and the one you want it use for its workdir.
+# 4. `systemctl --user daemon-reload && systemctl --user enable --now mirror-minder`
+# 5. `systemctl --user status mirror-minder` should immediately show output describing
+#    useful work.
+
+[Unit]
+Description=Monitor the health of Termux package mirrors
+
+[Service]
+ExecStart=%h/mirror-minder/mirror-minder.sh %h/termux-tools
+Restart=on-failure
+# mirror-minder interacts with github and has no cross-run rate-limiting. Take big
+# breaks between restarts to reduce the risk of upsetting github.
+RestartSec=15m
+StandardOutput=journal
+
+[Install]
+WantedBy=default.target
