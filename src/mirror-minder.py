@@ -25,8 +25,6 @@ import os
 import os.path
 import random
 import time
-from requests.exceptions import ChunkedEncodingError
-import urllib3
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
@@ -43,6 +41,7 @@ from issues import (
 )
 from repos import (
   CHECK_INTERVAL,
+  TERMUX_TOOLS_REPO_URL,
   Mirror,
   MirrorGroup,
   clone_or_update_termux_tools_repo,
@@ -76,7 +75,7 @@ RELEASE_RETRIEVAL_LIMIT_S = 120
 # Whether we should automatically close open issues when the mirrors they cover go green.
 AUTO_CLOSE = False
 
-REPORTING_CODE_REPO = "https://github.com/tstein/mirror-minder"
+REPORTING_CODE_REPO = TERMUX_TOOLS_REPO_URL
 
 # Headers to use in all HTTP requests.
 BASE_HEADERS = {"User-Agent": "Debian APT-HTTP/1.3 (0.0.0+really-mirror-minder)"}
