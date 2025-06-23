@@ -307,9 +307,15 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
 
   Does nothing if we haven't at least tried to check every mirror in the group at least
   once."""
-  if not all([m.last_check for m in group.mirrors]):
+
+  def is_recent(last_check) -> bool:
+    if last_check is None:
+      return False
+    return datetime.now(UTC) - last_check < (2 * CHECK_INTERVAL)
+
+  if not all([is_recent(m.last_check) for m in group.mirrors]):
     logging.info(
-      f"not judging mirror group at {group.domain} until all mirrors are checked at least once"
+      f"not judging mirror group at {group.domain} until all mirrors have been checked recently"
     )
     return
 
