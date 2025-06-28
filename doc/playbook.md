@@ -2,15 +2,21 @@
 
 ## how to read these issues
 
-`mirror-minder`'s issues are meant to include as much context as possible on what looks
-wrong, what it does and doesn't know, and where you might want to look next. Each issue
-represents problems with one or more mirrors on a single mirror host, identified by its
-FQDN. Each mirror is given one of three judgments, plus an explanation:
+`mirror-minder`'s issues include as much context as possible on what looks wrong, what
+it does and doesn't know, and where you might want to look next. Each issue represents
+problems with one or more mirrors on a single mirror host, identified by its FQDN. Each
+mirror is given one of three judgments, plus an explanation:
 
-* A hollow red circle (⭕) means the repo had an issue that definitely requires attention.
+* A hollow red circle (⭕) means the repo has an issue that definitely requires
+  attention.
 * A yellow square (🟨) means the repo has an issue that doesn't yet require attention,
   or that `mirror-minder` doesn't have enough info to assert a problem.
 * A full green circle (🟢) means the repo passed all checks.
+
+After opening an issue, `mirror-minder` will continuously edit the top comment with
+fresh information. If one of its issues shows all mirrors are green, the issue was
+either resolved or was transient, and you can resolve the issue. It will open a new one
+if the issue recurs.
 
 ## what to do
 
@@ -20,13 +26,18 @@ see an issue with at least one red mirror. You can look up whom to contact in th
 [Mirrors page of the `termux-packages`
 wiki](https://github.com/termux/termux-packages/wiki/Mirrors).
 
+Note that some mirrors, and particularly those hosted by Chinese universities' mirrors,
+may have an annoucement board reachable from their mirror's index page. If they are
+going through planned downtime or already working on an issue, you may be able to avoid
+an unnecessary ping with a few minutes' effort and a translator (if you need it).
+
 An issue should never be opened without at least one definite problem, but it's possible
 for an issue that was correctly opened to change to all yellow or all green+yellow,
 particularly if the authority updates and the stale repo enters a grace period as a
 result. Check the edit history on the issue, the state of the repo, and use your
 judgment to decide whether to contact the operator, to wait, or to close the bug.
-(`mirror-minder` will open a new issue immediately if a yellow mirror that you thought
-was going to go green turns red instead.)
+(If you resolve an issue with all yellow mirrors that you thought were going to go green,
+and the turn red instead, `mirror-minder` will open a new issue immediately.)
 
 ## if the operator fixes the issue
 
