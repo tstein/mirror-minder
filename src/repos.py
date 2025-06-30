@@ -28,13 +28,17 @@ class Mirror:
 
   e.g., there is one Mirror object for https://packages-cf.termux.dev/apt/termux-main."""
 
-  # Static info about the mirror.
+  #################################
+  # Static info about the mirror. #
+  #################################
   repo_url: str
   # The name of the package repo. e.g. main, root, x11
   repo_name: str
   weight: int
 
-  # Mirror-checking state.
+  #########################
+  # Mirror-checking state #
+  #########################
   # If you change this, don't forget to also change .update_from().
   next_check: datetime
   # Number of times in a row we've failed to successfully get the release file and parse
@@ -79,6 +83,9 @@ class MirrorGroup:
   so it's useful to keep them together."""
 
   domain: str
+  # The path of the file defining this set of package repos in the termux-tools code
+  # repo, relative to its root.
+  mirror_file_path: str
   mirrors: list[Mirror]
 
 
@@ -137,7 +144,8 @@ def __load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
       )
     )
   logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
-  return MirrorGroup(domain, mirrors)
+  mirror_file_path = filepath.replace("termux-tools/", "")
+  return MirrorGroup(domain, mirror_file_path, mirrors)
 
 
 def _load_mirrors_from_repo() -> list[MirrorGroup]:

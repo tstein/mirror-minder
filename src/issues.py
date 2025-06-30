@@ -9,6 +9,7 @@ from typing import Optional
 
 from sh import gh
 
+from repos import TERMUX_TOOLS_REPO_URL
 from util import PROGRAM_NAME, doc_url
 
 
@@ -54,15 +55,17 @@ def issue_title(package_repo_domain: str) -> str:
   """Returns an issue title for the given package repo domain. This should be stable,
   and is used for determining whether there's already an issue for a problem with a
   given repo host."""
-  return f"[{PROGRAM_NAME}] {package_repo_domain} is unhealthy"
+  return f"mirrors: {package_repo_domain} is unhealthy"
 
 
-def issue_body(package_repo_domain: str, details: str) -> str:
+def issue_body(package_repo_domain: str, mirror_file_path: str, details: str) -> str:
   """Returns an issue body appropriate for notifying humans of a problem."""
   return f"""
 [`{PROGRAM_NAME}`🤖](https://github.com/tstein/mirror-minder) has detected an issue with \
-the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}). \
-[Playbook here.]({doc_url("playbook")})
+the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}).
+
+* [playbook for `{PROGRAM_NAME}` issues]({doc_url("playbook")})
+* [definition file for all repos on `{package_repo_domain}`]({TERMUX_TOOLS_REPO_URL}/tree/master/{mirror_file_path})
 
 last updated: {datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")}
 

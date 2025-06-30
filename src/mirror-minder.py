@@ -181,11 +181,13 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
   return fail(mirror)
 
 
-def update_github_issue(repo_domain: str, details: str, create: bool) -> None:
+def update_github_issue(
+  repo_domain: str, mirror_file_path: str, details: str, create: bool
+) -> None:
   """Create or update an issue in the configured repo with the latest problem details on
   a repo."""
   title = issue_title(repo_domain)
-  body = issue_body(repo_domain, details)
+  body = issue_body(repo_domain, mirror_file_path, details)
   if LOG_ONLY:
     logging.warning(f"would update issue, but running log-only:\n{title}\n{body}")
     return
@@ -201,11 +203,11 @@ def update_github_issue(repo_domain: str, details: str, create: bool) -> None:
     logging.exception("something went wrong communicating with github")
 
 
-def close_github_issue(repo_domain: str, details: str) -> None:
+def close_github_issue(repo_domain: str, mirror_file_path: str, details: str) -> None:
   """Close an issue in the configured repo, updating the details one last time before
   doing so."""
   title = issue_title(repo_domain)
-  body = issue_body(repo_domain, details)
+  body = issue_body(repo_domain, mirror_file_path, details)
   if LOG_ONLY:
     logging.warning(f"would close issue, but running log-only:\n{title}\n{body}")
     return
@@ -305,8 +307,7 @@ def judge_mirror(
 def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> None:
   """Decide if a mirror group looks unhealthy and do something useful if it does.
 
-  Does nothing if we haven't at least tried to check every mirror in the group at least
-  once."""
+  Does nothing if we haven't attempted to check every mirror in the group recently."""
 
   def is_recent(last_check) -> bool:
     if last_check is None:
@@ -315,7 +316,8 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
 
   if not all([is_recent(m.last_check) for m in group.mirrors]):
     logging.info(
-      f"not judging mirror group at {group.domain} until all mirrors have been checked recently"
+      f"not judging mirror group at {group.domain} until all mirrors have been checked "
+      "recently"
     )
     return
 
@@ -357,9 +359,9 @@ links: [repo root]({mirror.repo_url}), [`Release`]({mirror.release_url()})
   # Otherwise, if there's any red, create-or-update, and if it's green+yellow, update
   # only if it already exists.
   if all_green and AUTO_CLOSE:
-    close_github_issue(group.domain, details)
+    close_github_issue(group.domain, group.mirror_file_path, details)
   else:
-    update_github_issue(group.domain, details, create=any_red)
+    update_github_issue(group.domain, group.mirror_file_path, details, create=any_red)
 
 
 def monitor_mirrors_for_a_while(monitor_period_s: float) -> None:
