@@ -158,13 +158,20 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     if line.startswith("Date:"):
       # This is a sync time. line looks like this: "Date: Tue, 3 Jun 2025 06:18:01 UTC"
       # Assumes:
-      #   it's always UTC, which might not be true
+      #   it is explicitly in UTC
       #   it uses abbreviated month names
       try:
-        sync_time_str = line.strip("Date: ").rstrip(" UTC").split(", ")[1]
-        sync_time = datetime.fromtimestamp(
-          datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S").timestamp(), UTC
-        )
+        sync_time_str = line.strip("Date: ").split(", ")[1]
+        # strptime() can understand a TZ name of "UTC", but that produces a naive
+        # (non-offset-aware) datetime, and this program deals entirely in offset-aware
+        # datetimes. By replacing the string UTC with a numerical offset and using %z
+        # instead of %Z, we get an offset-aware TZ.
+        if sync_time_str.endswith(" UTC"):
+          sync_time_str = sync_time_str.replace(" UTC", "+0000")
+        else:
+          logging.error(f"sync time for {release_url} not in UTC: {sync_time_str}")
+          continue
+        sync_time = datetime.strptime(sync_time_str, "%d %b %Y %H:%M:%S%z")
         return succeed(mirror, sync_time, release_url)
       except ValueError:
         logging.exception(
