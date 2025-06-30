@@ -15,10 +15,11 @@ these instructions:
    mirror-minder into, and the directory you want it use for its workdir.
 5. Create an environment file (`~$USERNAME/.config/systemd/user/mirror-minder.env`) and
    add `GH_TOKEN=` with a github access token. This should be a fine-grained personal
-   access token, and only needs read/write permissions on issues. (Note that the github
-   user must be an owner of the repo you're reporting issues to, which means a member of
-   the Termux github organization for Termux project repos.) Give it a lifetime of <=365
-   days and set multiple reminders to rotate it.
+   access token:
+   * set the resource owner to the Termux org
+   * choose an expiration date, and set multiple reminders to rotate it before then
+   * select only the repo you will report issues to
+   * grant read and write access to issues on the repo
 6. As the target user, `systemctl --user daemon-reload && systemctl --user enable --now
    mirror-minder`
 7. As the target user, `systemctl --user status mirror-minder` should immediately show
