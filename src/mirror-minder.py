@@ -57,6 +57,9 @@ from util import readable_timedelta
 # Approximately how frequently to stop monitoring, update the mirror defs from the repo,
 # and start monitoring again.
 MONITOR_PERIOD_S = 24 * 3600  # 1 day
+# How fresh we want mirrors to be. We don't need to alert the instant a mirror is this
+# stale, but it's helpful to surface which side of this line each mriror is on.
+FRESHNESS_TARGET = timedelta(hours=6)
 # When a mirror's state is this much older than the authoritative mirror for its repo,
 # we want to alert.
 STALENESS_LIMIT = timedelta(days=3)
@@ -281,6 +284,11 @@ def judge_mirror(
   # This is the freshness check we're all here for.
   staleness = authority.last_sync_time - mirror.last_sync_time
   authority_age = datetime.now(UTC) - authority.last_sync_time
+  logging.info(
+    f"{mirror.repo_url}: staleness={staleness}, "
+    f"authority_age={readable_timedelta(authority_age)}, "
+    f"last_sync={mirror.last_sync_time}, authority_last_sync={authority.last_sync_time}"
+  )
   if staleness > STALENESS_LIMIT:
     # When an authority updates infrequentely relative to the staleness limit, diligent
     # mirrors will appear stale the moment it does update. Not helpful to make noise in
@@ -301,14 +309,23 @@ def judge_mirror(
         f"[its authority]({authority.repo_url}), which was updated "
         f"`{readable_timedelta(authority_age)}` ago",
       )
-
-  return (
-    True,
-    f"🟢 looks good, last synced {mirror.last_sync_time}: "
-    f"`{readable_timedelta(staleness)}` older than "
-    f"[its authority]({authority.repo_url}), which was updated "
-    f"`{readable_timedelta(authority_age)}` ago",
-  )
+  elif staleness > FRESHNESS_TARGET:
+    return (
+      True,
+      f"🟨 (below alert threshold) hasn't synced since {mirror.last_sync_time}: "
+      f"`{readable_timedelta(staleness)}` older than "
+      f"[its authority]({authority.repo_url}), which was updated "
+      f"`{readable_timedelta(authority_age)}` ago",
+    )
+  else:
+    # No problem at all.
+    return (
+      True,
+      f"🟢 looks good, last synced {mirror.last_sync_time}: "
+      f"`{readable_timedelta(staleness)}` older than "
+      f"[its authority]({authority.repo_url}), which was updated "
+      f"`{readable_timedelta(authority_age)}` ago",
+    )
 
 
 def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> None:
@@ -397,9 +414,7 @@ def monitor_mirrors_for_a_while(monitor_period_s: float) -> None:
     for group in mirror_groups:
       did_anything = False
       for mirror in group.mirrors:
-        logging.debug(f"considering mirror={mirror}")
         if mirror.next_check < now:
-          logging.debug(f"checking mirror={mirror}")
           _ = check_and_update_mirror(mirror)
           did_anything = True
 
