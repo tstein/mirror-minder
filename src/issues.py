@@ -65,7 +65,11 @@ def issue_body(package_repo_domain: str, mirror_file_path: str, details: str) ->
 the package repo(s) on [`{package_repo_domain}`](https://{package_repo_domain}).
 
 * [playbook for `{PROGRAM_NAME}` issues]({doc_url("playbook")})
-* [definition file for all repos on `{package_repo_domain}`]({TERMUX_TOOLS_REPO_URL}/tree/master/{mirror_file_path})
+* [definition file for all repos on `{package_repo_domain}`]\
+({TERMUX_TOOLS_REPO_URL}/tree/master/{mirror_file_path})
+* [search for issues and pull requests]\
+(https://github.com/termux/termux-tools/issues?q={package_repo_domain}) \
+mentioning this domain
 
 last updated: {datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")}
 
