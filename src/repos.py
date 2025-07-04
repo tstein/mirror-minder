@@ -106,6 +106,7 @@ def clone_or_update_termux_tools_repo() -> None:
   returns."""
   if os.path.exists(TERMUX_TOOLS_REPO):
     os.chdir(TERMUX_TOOLS_REPO)
+    git("checkout", ".")
     git("clean", "-dfx")
     git("pull")
   else:
