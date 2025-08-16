@@ -58,8 +58,8 @@ from util import readable_timedelta
 # and start monitoring again.
 MONITOR_PERIOD_S = 24 * 3600  # 1 day
 # How fresh we want mirrors to be. We don't need to alert the instant a mirror is this
-# stale, but it's helpful to surface which side of this line each mriror is on.
-FRESHNESS_TARGET = timedelta(hours=6)
+# stale, but it's helpful to surface which side of this line each mirror is on.
+FRESHNESS_TARGET = timedelta(hours=12)
 # When a mirror's state is this much older than the authoritative mirror for its repo,
 # we want to alert.
 STALENESS_LIMIT = timedelta(days=3)
@@ -126,7 +126,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
     mirror.consecutive_check_failures = 0
     mirror.next_check = next_check_time()
     logging.info(f"successfully retrieved {release_url}")
-    logging.debug(f"mirror={mirror}")
+    logging.debug(f"{mirror=}")
     return mirror
 
   release_url = mirror.release_url()
@@ -140,7 +140,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
       logging.error(f"connect timeout for {release_url}")
     else:
       logging.error(f"connect failure for {release_url}")
-    logging.debug(f"mirror={mirror}")
+    logging.debug(f"{mirror=}")
     return fail(mirror)
   except requests.exceptions.ReadTimeout:
     logging.error(f"read timeout for {release_url}")
@@ -154,7 +154,7 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
 
   if release_req.status_code != 200:
     logging.warning(f"retrieving {release_url} returned HTTP {release_req.status_code}")
-    logging.debug(f"mirror={mirror}")
+    logging.debug(f"{mirror=}")
     return fail(mirror)
 
   for line in release_req.text.splitlines():
@@ -180,14 +180,14 @@ def check_and_update_mirror(mirror: Mirror) -> Mirror:
         logging.exception(
           f"retrieved release file at {release_url}, but couldn't parse the sync time"
         )
-        logging.debug(f"mirror={mirror}")
+        logging.debug(f"{mirror=}")
         return fail(mirror)
 
   # We didn't find a sync time in the release file. Treat this as a failure.
   logging.error(
     f"retrieved release file at {release_url}, but couldn't find a sync time"
   )
-  logging.debug(f"mirror={mirror}")
+  logging.debug(f"{mirror=}")
   return fail(mirror)
 
 
@@ -285,7 +285,7 @@ def judge_mirror(
   staleness = authority.last_sync_time - mirror.last_sync_time
   authority_age = datetime.now(UTC) - authority.last_sync_time
   logging.info(
-    f"{mirror.repo_url}: staleness={staleness}, "
+    f"{mirror.repo_url}: staleness={readable_timedelta(staleness)}, "
     f"authority_age={readable_timedelta(authority_age)}, "
     f"last_sync={mirror.last_sync_time}, authority_last_sync={authority.last_sync_time}"
   )
@@ -364,7 +364,7 @@ def judge_mirror_group(group: MirrorGroup, authorities: dict[str, Mirror]) -> No
     [f"{m.repo_name} health={h}" for m, h, _ in explanations]
   )
   logging.info(
-    f"judged group for {group.domain}, any_red={any_red}, all_green={all_green}: {short_mirror_health}"
+    f"judged group for {group.domain}, {any_red=}, {all_green=}: {short_mirror_health}"
   )
 
   def p(mirror, explanation):
