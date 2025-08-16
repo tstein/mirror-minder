@@ -144,7 +144,7 @@ def __load_mirrors_from_file(domain: str, filepath: str) -> MirrorGroup:
         last_sync_time=None,
       )
     )
-  logging.debug(f"loaded from {filepath}, mirrors={mirrors}")
+  logging.debug(f"loaded from {filepath}, {mirrors=}")
   mirror_file_path = filepath.replace("termux-tools/", "")
   return MirrorGroup(domain, mirror_file_path, mirrors)
 
@@ -163,7 +163,7 @@ def _load_mirrors_from_repo() -> list[MirrorGroup]:
       continue
     for domain in os.listdir(region_dir):
       if domain in domains_seen:
-        logging.info(f"ignoring duplicate mirror def for domain={domain}")
+        logging.info(f"ignoring duplicate mirror def for {domain=}")
       else:
         mirror_file = f"{region_dir}/{domain}"
         mirror_groups.append(__load_mirrors_from_file(domain, mirror_file))
@@ -173,7 +173,7 @@ def _load_mirrors_from_repo() -> list[MirrorGroup]:
   logging.info(
     f"loaded {len(mirror_groups)} mirror groups, {mirror_count} mirrors from repo"
   )
-  logging.debug(f"mirror_groups={mirror_groups}")
+  logging.debug(f"{mirror_groups=}")
   return mirror_groups
 
 
@@ -256,6 +256,6 @@ def load_mirrors() -> list[MirrorGroup]:
     f"merged cache, {len(mirrors_added)} mirrors added, {len(mirrors_removed)} "
     "removed since last cache update"
   )
-  logging.debug(f"mirrors_added={mirrors_added}")
-  logging.debug(f"mirrors_removed={mirrors_removed}")
+  logging.debug(f"{mirrors_added=}")
+  logging.debug(f"{mirrors_removed=}")
   return from_repo
