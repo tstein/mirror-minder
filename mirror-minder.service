@@ -1,0 +1,17 @@
+# This is a systemd unit meant to run mirror-minder as an unprivileged user, in a
+# systemd user daemon. See the mirror-minder repo docs for instructions.
+
+[Unit]
+Description=Monitor the health of Termux package mirrors
+
+[Service]
+ExecStart=%h/mirror-minder/mirror-minder.sh %h/termux-tools
+Restart=on-failure
+# mirror-minder interacts with github and has no cross-run rate-limiting. Take big
+# breaks between restarts to reduce the risk of upsetting github.
+RestartSec=15m
+StandardOutput=journal
+EnvironmentFile=%h/.config/systemd/user/mirror-minder.env
+
+[Install]
+WantedBy=default.target
